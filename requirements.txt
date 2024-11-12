@@ -1,4 +1,5 @@
+aiohttp==3.10.10
 dnspython==2.7.0
-ping3==4.0.8
-prettytable==3.11.0
-rich==13.9.2
+prettytable==3.12.0
+rich==13.9.4
+wcwidth==0.2.13

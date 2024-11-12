@@ -1,4 +1,3 @@
-from math import floor
 import os
 import sys
 from pathlib import Path
@@ -14,14 +13,7 @@ import socket
 from enum import Enum
 from datetime import datetime, timedelta, timezone
 from typing import List, Set, Optional, Dict, Tuple
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TaskID,
-    TimeRemainingColumn,
-    SpinnerColumn,
-    TextColumn,
-)
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import print as rprint
 import ctypes
 import re
@@ -110,60 +102,42 @@ class Utils:
                 f"\n[blue]已备份 [underline]{hosts_file_path}[/underline] 到 [underline]{backup_path}[/underline][/blue]"
             )
 
-    def get_formatted_line(char="-", color="green", width_percentage=0.97):
+    def get_align_str(
+        i,
+        group_name,
+        reference_str="启动 setHosts 自动更新···                                 ",
+    ):
         """
-        生成格式化的分隔线
+        创建一个经过填充的进度字符串，使其显示宽度与参考字符串相同
 
-        参数:
-            char: 要重复的字符
-            color: rich支持的颜色名称
-            width_percentage: 终端宽度的百分比（0.0-1.0）
+        Args:
+            i: 当前处理的组索引
+            group_name: 组名称
+            reference_str: 参考字符串，用于对齐长度
+
+        Returns:
+            调整后的格式化字符串
         """
-        # 获取终端宽度
-        terminal_width = shutil.get_terminal_size().columns
-        # 计算目标宽度（终端宽度的指定百分比）
-        target_width = floor(terminal_width * width_percentage)
+        # 计算参考字符串的显示宽度
+        ref_width = wcwidth.wcswidth(reference_str)
 
-        # 生成重复字符
-        line = char * target_width
+        # 构建基础字符串（不包含尾部填充）
+        base_str = f"正在处理第 {i} 组域名： {group_name}"
 
-        # 返回带颜色标记的行
-        return f"[{color}]{line}[/{color}]"
+        # 计算基础字符串的显示宽度
+        base_width = wcwidth.wcswidth(base_str)
 
-    def get_formatted_output(text, fill_char=".", align_position=0.97):
-        """
-        格式化输出文本，确保不超出终端宽度
+        # 计算需要添加的空格数量
+        # 需要考虑Rich标签不计入显示宽度
+        padding_needed = ref_width - base_width
 
-        参数:
-            text: 要格式化的文本
-            fill_char: 填充字符
-            align_position: 终端宽度的百分比（0.0-1.0）
-        """
-        # 获取终端宽度并计算目标宽度
-        terminal_width = shutil.get_terminal_size().columns
-        target_width = floor(terminal_width * align_position)
+        # 确保填充不会为负数
+        padding_needed = max(0, padding_needed)
 
-        # 移除rich标记计算实际文本长度
-        plain_text = (
-            text.replace("[blue on green]", "").replace("[/blue on green]", "")
-            # .replace("[完成]", "")
-        )
+        # 构建最终的格式化字符串
+        formatted_str = f"\n[bold white on bright_black]正在处理第 [green]{i}[/green] 组域名： {group_name}{' ' * padding_needed}[/bold white on bright_black]"
 
-        if "[完成]" in text:
-            main_text = plain_text.strip()
-            completion_mark = "[完成]"
-            # 关键修改：直接从目标宽度减去主文本长度，不再额外预留[完成]的空间
-            fill_count = target_width - len(main_text) - len(completion_mark) - 6
-            fill_count = max(0, fill_count)
-
-            filled_text = f"{main_text}{fill_char * fill_count}{completion_mark}"
-            return f"[blue on green]{filled_text}[/blue on green]"
-        else:
-            # 普通文本的处理保持不变
-            fill_count = target_width - len(plain_text.strip()) - 6
-            fill_count = max(0, fill_count)
-            filled_text = f"{plain_text.strip()}{' ' * fill_count}"
-            return f"[blue on green]{filled_text}[/blue on green]"
+        return formatted_str
 
 
 # -------------------- 域名与分组管理 -------------------- #
@@ -236,8 +210,8 @@ class DomainResolver:
         ips = set()
 
         # 1. 首先通过常规DNS服务器解析
-        dns_ips = await self._resolve_via_dns(domain)
-        ips.update(dns_ips)
+        # dns_ips = await self._resolve_via_dns(domain)
+        # ips.update(dns_ips)
 
         # 2. 然后通过DNS_records解析
         # 由于init时已经处理了过期文件，这里只需要检查域名是否在缓存中
@@ -365,8 +339,6 @@ class LatencyTester:
     def __init__(self, resolver: DomainResolver, hosts_num: int):
         self.resolver = resolver
         self.hosts_num = hosts_num
-        self.progress = None
-        self.current_task = None
 
     async def get_latency(self, ip: str, port: int = 443) -> float:
         try:
@@ -420,24 +392,24 @@ class LatencyTester:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
-    def set_progress(self, progress: Progress, task_description: str = None):
-        """设置进度显示实例"""
-        self.progress = progress
-        if task_description:
-            self.current_task = self.progress.add_task(task_description, total=1)
-
     async def get_lowest_latency_hosts(
         self, domains: List[str], file_ips: Set[str], latency_limit: int
     ) -> List[Tuple[str, float]]:
         all_ips = set()
 
-        # 解析域名
-        if self.progress and self.current_task:
-            self.progress.update(self.current_task, description="正在解析域名...")
-            tasks = [self.resolver.resolve_domain(domain) for domain in domains]
-            for ips in await asyncio.gather(*tasks):
-                all_ips.update(ips)
-            all_ips.update(file_ips)
+        if args.log.upper() == "INFO":
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}\n"),
+                transient=True,
+            ) as progress:
+                task = progress.add_task("正在解析域名...", total=len(domains))
+                tasks = [self.resolver.resolve_domain(domain) for domain in domains]
+
+                for ips in await asyncio.gather(*tasks):
+                    all_ips.update(ips)
+                    progress.update(task, advance=1)
+                all_ips.update(file_ips)
         else:
             tasks = [self.resolver.resolve_domain(domain) for domain in domains]
             for ips in await asyncio.gather(*tasks):
@@ -448,15 +420,18 @@ class LatencyTester:
             f"[bright_black]- 找到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
         )
 
-        # Ping所有IP
-        if self.progress and self.current_task:
-            self.progress.update(
-                self.current_task, description="正在 ping 所有IP地址..."
-            )
-            ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
-            results = []
-            for result in await asyncio.gather(*ping_tasks):
-                results.append(result)
+        if args.log.upper() == "INFO":
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True,
+            ) as progress:
+                task = progress.add_task("正在 ping 所有IP地址...", total=len(all_ips))
+                ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
+                results = []
+                for result in await asyncio.gather(*ping_tasks):
+                    results.append(result)
+                    progress.update(task, advance=1)
         else:
             ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
             results = []
@@ -485,9 +460,6 @@ class LatencyTester:
             best_hosts.append(min(ipv6_results, key=lambda x: x[1]))
         else:
             best_hosts = sorted(valid_results, key=lambda x: x[1])[: self.hosts_num]
-
-        if self.progress and self.current_task:
-            self.progress.update(self.current_task, advance=1)
 
         rprint(
             f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit}ms ：[/bold yellow]"
@@ -563,7 +535,7 @@ class HostsManager:
             .replace("+0800", "+08:00")
         )
 
-        rprint("\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
+        rprint("\n[bold yellow]正在更新hosts文件...[/bold yellow]")
 
         # 1. 添加标题
         new_content.append("\n# cnNetTool Start\n")
@@ -618,137 +590,76 @@ class HostsUpdater:
         self.resolver = resolver
         self.tester = tester
         self.hosts_manager = hosts_manager
-        # 添加并发限制
-        self.semaphore = asyncio.Semaphore(5)  # 限制并发请求数
-        # 添加计数器用于控制ipaddress.com的访问频率
-        self.ipaddress_counter = 0
-        self.ipaddress_limit = 20  # 每批次最大请求数
-        self.ipaddress_delay = 60  # 批次之间的延迟(秒)
-
-        # 添加进度显示实例
-        self.progress = Progress(
-            "[progress.description]{task.description}",
-            BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            TimeRemainingColumn(),
-        )
-
-    async def _resolve_domains_batch(
-        self, domains: List[str], task_id: TaskID
-    ) -> Dict[str, Set[str]]:
-        """批量解析域名，带进度更新"""
-        results = {}
-        total_domains = len(domains)
-
-        async with self.semaphore:
-            for i, domain in enumerate(domains, 1):
-                try:
-                    ips = await self.resolver.resolve_domain(domain)
-                    results[domain] = ips
-                    # 更新进度
-                    self.progress.update(task_id, advance=1)
-                except Exception as e:
-                    logging.error(f"解析域名 {domain} 失败: {e}")
-                    results[domain] = set()
-
-                if "_resolve_via_ipaddress" in str(self.resolver.resolve_domain):
-                    self.ipaddress_counter += 1
-                    if self.ipaddress_counter >= self.ipaddress_limit:
-                        await asyncio.sleep(self.ipaddress_delay)
-                        self.ipaddress_counter = 0
-
-        return results
-
-    async def _process_domain_group(self, group: DomainGroup, index: int) -> List[str]:
-        """处理单个域名组"""
-        entries = []
-        all_ips = group.ips.copy()
-
-        # 创建该组的进度任务
-        task_id = self.progress.add_task(
-            f"处理组 {group.name}", total=len(group.domains)
-        )
-
-        # 为 LatencyTester 设置进度显示
-        self.tester.set_progress(self.progress, f"处理组 {group.name} 的延迟测试")
-
-        if group.group_type == GroupType.SEPARATE:
-            for domain in group.domains:
-                resolved_ips = await self._resolve_domains_batch([domain], task_id)
-                domain_ips = resolved_ips.get(domain, set())
-
-                if not domain_ips:
-                    logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
-                    continue
-
-                fastest_ips = await self.tester.get_lowest_latency_hosts(
-                    [domain],
-                    domain_ips,
-                    self.resolver.max_latency,
-                )
-                if fastest_ips:
-                    entries.extend(f"{ip}\t{domain}" for ip, latency in fastest_ips)
-                else:
-                    logging.warning(f"{domain} 未找到延迟满足要求的IP。")
-        else:
-            resolved_ips_dict = await self._resolve_domains_batch(
-                group.domains, task_id
-            )
-
-            for ips in resolved_ips_dict.values():
-                all_ips.update(ips)
-
-            if not all_ips:
-                logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
-                return entries
-
-            logging.info(f"组 {group.name} 找到 {len(all_ips)} 个 DNS 主机记录")
-
-            fastest_ips = await self.tester.get_lowest_latency_hosts(
-                group.domains,
-                all_ips,
-                self.resolver.max_latency,
-            )
-
-            if fastest_ips:
-                for domain in group.domains:
-                    entries.extend(f"{ip}\t{domain}" for ip, latency in fastest_ips)
-                    logging.info(f"已处理域名: {domain}")
-            else:
-                logging.warning(f"组 {group.name} 未找到延迟满足要求的IP。")
-
-        # 标记该组处理完成
-        self.progress.update(task_id, completed=len(group.domains))
-        return entries
 
     async def update_hosts(self):
-        """优化后的主更新函数，支持并发进度显示"""
-        cache_valid = self.resolver._is_dns_cache_valid()
+        # 更新hosts文件的主逻辑
+        all_entries = []
+        for i, group in enumerate(self.domain_groups, 1):
+            progress_str = Utils.get_align_str(i, group.name)
+            rprint(progress_str)
 
-        with self.progress:
-            if cache_valid:
-                # 并发处理所有组
-                tasks = [
-                    self._process_domain_group(group, i)
-                    for i, group in enumerate(self.domain_groups, 1)
-                ]
-                all_entries_lists = await asyncio.gather(*tasks)
-                all_entries = [
-                    entry for entries in all_entries_lists for entry in entries
-                ]
+            all_ips = group.ips.copy()  # 从预设IP开始
+
+            # 2. 根据不同组设置IP
+            if group.group_type == GroupType.SEPARATE:
+                for domain in group.domains:
+                    rprint(f"\n为域名 {domain} 设置 DNS 映射主机")
+                    all_ips = set()
+                    resolved_ips = await self.resolver.resolve_domain(domain)
+                    all_ips.update(resolved_ips)
+                    if not all_ips:
+                        logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
+                        continue
+
+                    fastest_ips = await self.tester.get_lowest_latency_hosts(
+                        [domain],
+                        all_ips,
+                        self.resolver.max_latency,
+                    )
+                    if not fastest_ips:
+                        logging.warning(f"{domain} 未找到延迟满足要求的IP。")
+                        continue
+
+                    new_entries = [f"{ip}\t{domain}" for ip, latency in fastest_ips]
+                    all_entries.extend(new_entries)
             else:
-                # 顺序处理所有组
-                all_entries = []
-                for i, group in enumerate(self.domain_groups, 1):
-                    entries = await self._process_domain_group(group, i)
-                    all_entries.extend(entries)
+                # 收集组内所有域名的DNS解析结果
+                for domain in group.domains:
+                    resolved_ips = await self.resolver.resolve_domain(domain)
+                    all_ips.update(resolved_ips)
+
+                if not all_ips:
+                    logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
+                    continue
+
+                rprint(f"  找到 {len(all_ips)} 个 DNS 主机记录")
+
+                fastest_ips = await self.tester.get_lowest_latency_hosts(
+                    # [group.domains[0]],  # 只需传入一个域名，因为只是用来测试IP
+                    group.domains,  # 传入所有域名以获得更准确的延迟测试结果
+                    all_ips,
+                    self.resolver.max_latency,
+                )
+
+                if not fastest_ips:
+                    logging.warning(f"组 {group.name} 未找到延迟满足要求的IP。")
+                    continue
+
+                rprint(
+                    f"\n[bold]为组 {group.name} 内所有域名应用延迟最低的 DNS 映射主机IP:[/bold]"
+                )
+                for domain in group.domains:
+                    new_entries = [f"{ip}\t{domain}" for ip, latency in fastest_ips]
+                    rprint(f"[bright_black]  - {domain}[/bright_black]")
+                    all_entries.extend(new_entries)
 
         if all_entries:
             self.hosts_manager.write_to_hosts_file(all_entries)
-            rprint(Utils.get_formatted_output("Hosts文件更新[完成]"))
+            rprint(
+                "\n[blue on green]Hosts 文件更新......................................... [完成][/blue on green]"
+            )
         else:
-            logging.warning("没有有效条目可写入")
-            rprint("[bold red]警告: 没有有效条目可写入。hosts文件未更新。[/bold red]")
+            rprint("\n[bold red]警告: 没有有效条目可写入。hosts文件未更新。[/bold red]")
 
 
 # -------------------- 权限提升模块-------------------- #
@@ -858,12 +769,139 @@ class Config:
                 "www.themoviedb.org",
                 "auth.themoviedb.org",
             ],
-            ips={},
+            ips={
+                # "18.239.36.98",
+                # "108.160.169.178",
+                # "18.165.122.73",
+                # "13.249.146.88",
+                # "13.224.167.74",
+                # "13.249.146.96",
+                # "99.86.4.122",
+                # "108.160.170.44",
+                # "108.160.169.54",
+                # "98.159.108.58",
+                # "13.226.225.4",
+                # "31.13.80.37",
+                # "202.160.128.238",
+                # "13.224.167.16",
+                # "199.96.63.53",
+                # "104.244.43.6",
+                # "18.239.36.122",
+                # "66.220.149.32",
+                # "108.157.14.15",
+                # "202.160.128.14",
+                # "52.85.242.44",
+                # "199.59.149.207",
+                # "54.230.129.92",
+                # "54.230.129.11",
+                # "103.240.180.117",
+                # "66.220.148.145",
+                # "54.192.175.79",
+                # "143.204.68.100",
+                # "31.13.84.2",
+                # "18.239.36.64",
+                # "52.85.242.124",
+                # "54.230.129.83",
+                # "18.165.122.27",
+                # "13.33.88.3",
+                # "202.160.129.36",
+                # "108.157.14.112",
+                # "99.86.4.16",
+                # "199.59.149.237",
+                # "199.59.148.202",
+                # "54.230.129.74",
+                # "202.160.128.40",
+                # "199.16.156.39",
+                # "13.224.167.108",
+                # "192.133.77.133",
+                # "168.143.171.154",
+                # "54.192.175.112",
+                # "128.242.245.43",
+                # "54.192.175.108",
+                # "54.192.175.87",
+                # "199.59.148.229",
+                # "143.204.68.22",
+                # "13.33.88.122",
+                # "52.85.242.73",
+                # "18.165.122.87",
+                # "168.143.162.58",
+                # "103.228.130.61",
+                # "128.242.240.180",
+                # "99.86.4.8",
+                # "104.244.46.52",
+                # "199.96.58.85",
+                # "13.226.225.73",
+                # "128.121.146.109",
+                # "69.30.25.21",
+                # "13.249.146.22",
+                # "13.249.146.87",
+                # "157.240.12.5",
+                # "3.162.38.113",
+                # "143.204.68.72",
+                # "104.244.43.52",
+                # "13.224.167.10",
+                # "3.162.38.31",
+                # "3.162.38.11",
+                # "3.162.38.66",
+                # "202.160.128.195",
+                # "162.125.6.1",
+                # "104.244.43.128",
+                # "18.165.122.23",
+                # "99.86.4.35",
+                # "108.160.165.212",
+                # "108.157.14.27",
+                # "13.226.225.44",
+                # "157.240.9.36",
+                # "13.33.88.37",
+                # "18.239.36.92",
+                # "199.59.148.247",
+                # "13.33.88.97",
+                # "31.13.84.34",
+                # "124.11.210.175",
+                # "13.226.225.52",
+                # "31.13.86.21",
+                # "108.157.14.86",
+                # "143.204.68.36",
+            },
         ),
         DomainGroup(
             name="TMDB 封面",
             domains=["image.tmdb.org", "images.tmdb.org"],
-            ips={},
+            ips={
+                # "89.187.162.242",
+                # "169.150.249.167",
+                # "143.244.50.209",
+                # "143.244.50.210",
+                # "143.244.50.88",
+                # "143.244.50.82",
+                # "169.150.249.165",
+                # "143.244.49.178",
+                # "143.244.49.179",
+                # "143.244.50.89",
+                # "143.244.50.212",
+                # "169.150.207.215",
+                # "169.150.249.163",
+                # "143.244.50.85",
+                # "143.244.50.91",
+                # "143.244.50.213",
+                # "169.150.249.164",
+                # "169.150.249.162",
+                # "169.150.249.166",
+                # "143.244.49.183",
+                # "143.244.49.177",
+                # "143.244.50.83",
+                # "138.199.9.104",
+                # "169.150.249.169",
+                # "143.244.50.214",
+                # "79.127.213.217",
+                # "143.244.50.87",
+                # "143.244.50.84",
+                # "169.150.249.168",
+                # "143.244.49.180",
+                # "143.244.50.86",
+                # "143.244.50.90",
+                # "143.244.50.211",
+            },
         ),
         DomainGroup(
             name="Google 翻译",
@@ -941,13 +979,15 @@ class Config:
         # (提示：dns_records.json 文件将存储 A、AAAA 等 DNS 资源记录缓存。)
         return dns_cache_dir / "dns_records.json"  # 返回缓存文件路径
 
-
 # -------------------- 主函数入口 -------------------- #
 async def main():
-    rprint(Utils.get_formatted_line())  # 默认绿色横线
-    rprint(Utils.get_formatted_output("启动 setHosts 自动更新···"))
-    rprint(Utils.get_formatted_line())  # 默认绿色横线
-    print()
+    rprint("[green]----------------------------------------------------------[/green]")
+    rprint(
+        "[blue on green]启动 setHosts 自动更新···                              [/blue on green]"
+    )
+    rprint(
+        "[green]----------------------------------------------------------[/green]\n"
+    )
 
     start_time = datetime.now()  # 记录程序开始运行时间
 
@@ -992,7 +1032,7 @@ async def main():
     rprint(
         f"[bold]代码运行时间:[/bold] [cyan]{total_time.total_seconds():.2f} 秒[/cyan]"
     )
-    input("\n任务执行完毕，按任意键退出！")
+    # input("\n任务执行完毕，按任意键退出！")
 
 
 if __name__ == "__main__":

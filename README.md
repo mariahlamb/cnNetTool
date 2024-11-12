@@ -5,10 +5,14 @@
 ](https://github.com/sinspired/cnNetTool)
 [![GitHub last commit](https://img.shields.io/github/last-commit/sinspired/cnNetTool?logo=github&label=最后提交：)](ttps://github.com/sinspired/cnNetTool)
 
-基于Python的网络小工具。
+全面解锁Github，解决加载慢、无法访问等问题！解锁Google翻译，支持chrome网页翻译及插件，解锁划词翻译，以及依赖Google翻译API的各种平台插件。解锁tinyMediaManager影视刮削。
 
-针对某些区域DNS污染问题，自动筛选解析速度最快的 DNS 服务器、自动设置hosts文件（包括tinyMediaManager刮削源tmdb.org、themoviedb.org，Google/chrome网页翻译等），支持Windows、Linux、MacOS。
+自动设置最佳DNS服务器。
 
+> 适合部分地区饱受dns污染困扰，访问 GitHub 卡顿、抽风、图裂，无法使用Chrome浏览器 自带翻译功能，无法刮削影视封面等问题。分别使用 `setDNS` 自动查找最快服务器并设置，使用 `setHosts` 自动查找DNS映射主机并设置。支持Windows、Linux、MacOS。Enjoy!❤
+
+> [!NOTE]
+> 首次运行大约需要2分钟以获取DNS主机，请耐心等待。后续运行速度大约10秒左右
 
 # 安装
 
@@ -23,12 +27,12 @@ pip install -r requirements.txt
 
 # 参数说明
 
-**CloudflareBestIP** 可以接受以下参数：
+**cnNetTool** 可以接受以下参数：
 
 ### DNS 服务器工具 `SetDNS.py`
 
 * --debug 启用调试日志
-* --show-availbale-list, --list 显示可用dns列表，通过 --num 控制娴熟数量
+* --show-availbale-list, --list 显示可用dns列表，通过 --num 控制显示数量
 * --best-dns-num BEST_DNS_NUM, --num 显示最佳DNS服务器的数量
 * --algorithm --mode {region,overall} 默认 `region` 平衡IPv4和ipv6 DNS
 * --show-resolutions, --show 显示域名解析结果
@@ -36,7 +40,7 @@ pip install -r requirements.txt
 ### Hosts文件工具 `SetHosts.py`
 
 * --log-level 设置日志输出等级，'DEBUG', 'INFO', 'WARNING', 'ERROR'
-* --num-fastest 设置选择的最快IP数量
+* --num-fastest 限定Hosts主机 ip 数量
 * --max-latency 设置允许的最大延迟（毫秒）
 
 命令行键入 `-h` `help` 获取帮助
