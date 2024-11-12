@@ -427,7 +427,7 @@ class LatencyTester:
             self.current_task = self.progress.add_task(task_description, total=1)
 
     async def get_lowest_latency_hosts(
-        self, domains: List[str], file_ips: Set[str], latency_limit: int
+        self, group_name:str,domains: List[str], file_ips: Set[str], latency_limit: int
     ) -> List[Tuple[str, float]]:
         all_ips = set()
 
@@ -445,7 +445,7 @@ class LatencyTester:
             all_ips.update(file_ips)
 
         rprint(
-            f"[bright_black]- 找到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
+            f"[bright_black]- 找到 [bold bright_green]{len(all_ips):2}[/bold bright_green] 个唯一IP地址 [{group_name}][/bright_black]"
         )
 
         # Ping所有IP
@@ -490,7 +490,7 @@ class LatencyTester:
             self.progress.update(self.current_task, advance=1)
 
         rprint(
-            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit}ms ：[/bold yellow]"
+            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 延迟 < {latency_limit}ms 丨 [{group_name}] :[/bold yellow]"
         )
         for ip, time in best_hosts:
             rprint(
@@ -682,6 +682,7 @@ class HostsUpdater:
                     continue
 
                 fastest_ips = await self.tester.get_lowest_latency_hosts(
+                    group.name,
                     [domain],
                     domain_ips,
                     self.resolver.max_latency,
@@ -705,6 +706,7 @@ class HostsUpdater:
             logging.info(f"组 {group.name} 找到 {len(all_ips)} 个 DNS 主机记录")
 
             fastest_ips = await self.tester.get_lowest_latency_hosts(
+                group.name,
                 group.domains,
                 all_ips,
                 self.resolver.max_latency,
@@ -847,6 +849,7 @@ class Config:
             domains=[
                 "tmdb.org",
                 "api.tmdb.org",
+                "files.tmdb.org",
             ],
             ips={},
         ),
@@ -866,6 +869,37 @@ class Config:
             ips={},
         ),
         DomainGroup(
+            name="IMDB 网页",
+            group_type=GroupType.SEPARATE,
+            domains=[
+                "imdb.com",
+                "www.imdb.com",
+                "secure.imdb.com",
+                "s.media-imdb.com",
+                "us.dd.imdb.com",
+                "www.imdb.to",
+                "imdb-webservice.amazon.com",
+                "origin-www.imdb.com",
+                "origin.www.geo.imdb.com",
+            ],
+            ips={},
+        ),
+        DomainGroup(
+            name="IMDB 图片/视频/js脚本",
+            group_type=GroupType.SEPARATE,
+            domains=[
+                "m.media-amazon.com",
+                "Images-na.ssl-images-amazon.com",
+                "images-fe.ssl-images-amazon.com",
+                "images-eu.ssl-images-amazon.com",
+                "ia.media-imdb.com",
+                "f.media-amazon.com",
+                "imdb-video.media-imdb.com",
+                "dqpnq362acqdi.cloudfront.net",
+            ],
+            ips={},
+        ),
+        DomainGroup(
             name="Google 翻译",
             domains=[
                 "translate.google.com",
@@ -873,12 +907,14 @@ class Config:
                 "translate-pa.googleapis.com",
             ],
             ips={
+                "35.196.72.166",
+                "209.85.232.195",
+                "34.105.140.105",
                 "216.239.32.40",
                 "2404:6800:4008:c15::94",
                 "2a00:1450:4001:829::201a",
                 "2404:6800:4008:c13::5a",
-                "2a00:1450:4001:803::201a",
-                "74.125.204.139",
+                # "74.125.204.139",
                 "2607:f8b0:4004:c07::66",
                 "2607:f8b0:4004:c07::71",
                 "2607:f8b0:4004:c07::8a",
@@ -887,10 +923,6 @@ class Config:
                 "172.253.62.101",
                 "172.253.62.102",
                 "172.253.62.103",
-                "35.197.239.137",
-                "35.189.113.240",
-                "35.228.168.221",
-                "35.210.233.33",
             },
         ),
         DomainGroup(

@@ -758,6 +758,7 @@ class Config:
             domains=[
                 "tmdb.org",
                 "api.tmdb.org",
+                "files.tmdb.org",
             ],
             ips={},
         ),
@@ -904,6 +905,37 @@ class Config:
             },
         ),
         DomainGroup(
+            name="IMDB 网页",
+            group_type=GroupType.SEPARATE,
+            domains=[
+                "imdb.com",
+                "www.imdb.com",
+                "secure.imdb.com",
+                "s.media-imdb.com",
+                "us.dd.imdb.com",
+                "www.imdb.to",
+                "imdb-webservice.amazon.com",
+                "origin-www.imdb.com",
+                "origin.www.geo.imdb.com",
+            ],
+            ips={},
+        ),
+        DomainGroup(
+            name="IMDB 图片/视频/js脚本",
+            group_type=GroupType.SEPARATE,
+            domains=[
+                "m.media-amazon.com",
+                "Images-na.ssl-images-amazon.com",
+                "images-fe.ssl-images-amazon.com",
+                "images-eu.ssl-images-amazon.com",
+                "ia.media-imdb.com",
+                "f.media-amazon.com",
+                "imdb-video.media-imdb.com",
+                "dqpnq362acqdi.cloudfront.net",
+            ],
+            ips={},
+        ),
+        DomainGroup(
             name="Google 翻译",
             domains=[
                 "translate.google.com",
@@ -911,12 +943,14 @@ class Config:
                 "translate-pa.googleapis.com",
             ],
             ips={
+                "35.196.72.166",
+                "209.85.232.195",
+                "34.105.140.105",
                 "216.239.32.40",
                 "2404:6800:4008:c15::94",
                 "2a00:1450:4001:829::201a",
                 "2404:6800:4008:c13::5a",
-                "2a00:1450:4001:803::201a",
-                "74.125.204.139",
+                # "74.125.204.139",
                 "2607:f8b0:4004:c07::66",
                 "2607:f8b0:4004:c07::71",
                 "2607:f8b0:4004:c07::8a",
@@ -925,10 +959,6 @@ class Config:
                 "172.253.62.101",
                 "172.253.62.102",
                 "172.253.62.103",
-                "35.197.239.137",
-                "35.189.113.240",
-                "35.228.168.221",
-                "35.210.233.33",
             },
         ),
         DomainGroup(
@@ -978,6 +1008,7 @@ class Config:
 
         # (提示：dns_records.json 文件将存储 A、AAAA 等 DNS 资源记录缓存。)
         return dns_cache_dir / "dns_records.json"  # 返回缓存文件路径
+
 
 # -------------------- 主函数入口 -------------------- #
 async def main():
@@ -1032,7 +1063,7 @@ async def main():
     rprint(
         f"[bold]代码运行时间:[/bold] [cyan]{total_time.total_seconds():.2f} 秒[/cyan]"
     )
-    # input("\n任务执行完毕，按任意键退出！")
+    input("\n任务执行完毕，按任意键退出！")
 
 
 if __name__ == "__main__":
