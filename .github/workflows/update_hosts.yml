@@ -3,7 +3,7 @@ name: Update hosts
 on:
   push:
     paths:
-      - 'setHosts.py'
+      - 'SetHosts.py'
       - 'requirements.txt'
   schedule:
     - cron: '0 */4 * * *'
@@ -37,7 +37,7 @@ jobs:
       
       - name: Run hosts update script
         run: |
-          sudo python setHosts.py
+          sudo python SetHosts.py
       
       - name: Commit and push changes
         run: |
