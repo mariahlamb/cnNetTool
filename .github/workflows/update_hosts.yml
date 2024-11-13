@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          sudo pip install -r requirements.txt
+          if [ -f requirements.txt ]; then sudo pip install -r requirements.txt; fi
           echo "Installed packages:"
           sudo pip list
       
@@ -43,7 +43,7 @@ jobs:
           python -V
           which python
           echo "Running script with sudo..."
-          sudo python SetHosts.py --no-input
+          sudo python setHosts.py
       
       - name: Commit and push changes
         env:
