@@ -19,15 +19,12 @@ from rich.progress import (
     BarColumn,
     TaskID,
     TimeRemainingColumn,
-    SpinnerColumn,
-    TextColumn,
 )
 from rich import print as rprint
 import ctypes
 import re
 from functools import wraps
 
-import wcwidth
 
 # -------------------- 常量设置 -------------------- #
 RESOLVER_TIMEOUT = 1  # DNS 解析超时时间 秒
@@ -59,24 +56,30 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--log",
+        "-log",
         default="info",
         choices=["debug", "info", "warning", "error"],
         help="设置日志输出等级",
     )
     parser.add_argument(
+        "-num",
         "--hosts-num",
-        "--num",
         default=HOSTS_NUM,
         type=int,
         help="限定Hosts主机 ip 数量",
     )
     parser.add_argument(
+        "-max",
         "--max-latency",
-        "--max",
         default=MAX_LATENCY,
         type=int,
         help="设置允许的最大延迟（毫秒）",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="打印运行信息",
     )
     return parser.parse_args()
 
@@ -109,6 +112,50 @@ class Utils:
             rprint(
                 f"\n[blue]已备份 [underline]{hosts_file_path}[/underline] 到 [underline]{backup_path}[/underline][/blue]"
             )
+
+    @staticmethod
+    def write_readme_file(
+        hosts_content: List[str], temp_file_path: str, update_time: str
+    ):
+        """
+        根据模板文件生成 README.md 文件,并将 hosts 文件内容写入其中。
+
+        参数:
+        hosts_content (List[str]): hosts 文件的内容,以列表形式传入
+        temp_file_path (str): 输出的 README.md 文件路径
+        update_time (str): hosts 文件的更新时间,格式为 "YYYY-MM-DD HH:MM:SS +0800"
+        """
+        try:
+            # 获取template文件的绝对路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, temp_file_path)
+
+            if not os.path.exists(template_path):
+                raise FileNotFoundError(f"模板文件未找到: {template_path}")
+
+            # 读取模板文件
+            with open(template_path, "r", encoding="utf-8") as temp_fb:
+                template_content = temp_fb.read()
+
+            # 将hosts内容转换为字符串
+            hosts_str = "\n".join(hosts_content)
+
+            # 使用替换方法而不是format
+            readme_content = template_content.replace("{hosts_str}", hosts_str)
+            readme_content = readme_content.replace("{update_time}", update_time)
+
+            # 写入新文件
+            with open("README.md", "w", encoding="utf-8") as output_fb:
+                output_fb.write(readme_content)
+
+            rprint(
+                f"[blue]已更新 README.md 文件,位于: [underline]README.md[/underline][/blue]\n"
+            )
+
+        except FileNotFoundError as e:
+            print(f"错误: {str(e)}")
+        except Exception as e:
+            print(f"生成 README.md 文件时发生错误: {str(e)}")
 
     def get_formatted_line(char="-", color="green", width_percentage=0.97):
         """
@@ -252,7 +299,7 @@ class DomainResolver:
             ips.update(ipaddress_ips)
 
         if ips:
-            logging.debug(f"成功解析 {domain}, 找到 {len(ips)} 个 DNS 主机")
+            logging.debug(f"成功解析 {domain}, 发现 {len(ips)} 个 DNS 主机")
         else:
             logging.debug(f"警告: 无法解析 {domain}")
 
@@ -348,8 +395,8 @@ class DomainResolver:
                         )
                         logging.debug(f"DNS_records：\n {ips}")
                     else:
-                        logging.warning(
-                            f"ipaddress.com 未找到 {domain} 的 DNS_records 地址"
+                        logging.debug(
+                            f"ipaddress.com 未解析到 {domain} 的 DNS_records 地址"
                         )
 
         except Exception as e:
@@ -367,6 +414,11 @@ class LatencyTester:
         self.hosts_num = hosts_num
         self.progress = None
         self.current_task = None
+
+    def set_progress(self, progress, task):
+        """设置进度显示器和当前任务"""
+        self.progress = progress
+        self.current_task = task
 
     async def get_latency(self, ip: str, port: int = 443) -> float:
         try:
@@ -414,62 +466,71 @@ class LatencyTester:
                 logging.error(f"{ip} 平均延迟为 0 ms，视为无效")
                 return ip, float("inf")
 
+            if self.progress and self.current_task:
+                self.progress.update(self.current_task, advance=1)
+
             logging.debug(f"{ip} 平均延迟: {average_response_time:.2f} ms")
             return ip, average_response_time
         except Exception as e:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
-    def set_progress(self, progress: Progress, task_description: str = None):
-        """设置进度显示实例"""
-        self.progress = progress
-        if task_description:
-            self.current_task = self.progress.add_task(task_description, total=1)
-
     async def get_lowest_latency_hosts(
-        self, group_name:str,domains: List[str], file_ips: Set[str], latency_limit: int
+        self,
+        group_name: str,
+        domains: List[str],
+        file_ips: Set[str],
+        latency_limit: int,
+        latency_task_id: TaskID,
     ) -> List[Tuple[str, float]]:
-        all_ips = set()
+        all_ips = file_ips
+        total_ips = len(all_ips)
 
-        # 解析域名
-        if self.progress and self.current_task:
-            self.progress.update(self.current_task, description="正在解析域名...")
-            tasks = [self.resolver.resolve_domain(domain) for domain in domains]
-            for ips in await asyncio.gather(*tasks):
-                all_ips.update(ips)
-            all_ips.update(file_ips)
-        else:
-            tasks = [self.resolver.resolve_domain(domain) for domain in domains]
-            for ips in await asyncio.gather(*tasks):
-                all_ips.update(ips)
-            all_ips.update(file_ips)
-
-        rprint(
-            f"[bright_black]- 找到 [bold bright_green]{len(all_ips):2}[/bold bright_green] 个唯一IP地址 [{group_name}][/bright_black]"
-        )
+        # 更新进度条描述和总数
+        if self.progress and latency_task_id:
+            self.progress.update(
+                latency_task_id,
+                total=total_ips,
+                visible=False,
+            )
+        if args.verbose:
+            rprint(
+                f"[bright_black]- 解析到 [bold bright_green]{len(all_ips):2}[/bold bright_green] 个唯一IP地址 [{group_name}][/bright_black]"
+            )
 
         # Ping所有IP
-        if self.progress and self.current_task:
+        ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
+
+        results = []
+        # 使用 asyncio.as_completed 确保每个任务完成时立即处理
+        for coro in asyncio.as_completed(ping_tasks):
+            result = await coro
+            results.append(result)
+
+            # 每完成一个任务立即更新进度
+            if self.progress and latency_task_id:
+                self.progress.update(
+                    latency_task_id,
+                    advance=1,
+                    visible=True,
+                    total=total_ips,
+                )
+
+        if self.progress and latency_task_id:
+            # 确保进度完结
             self.progress.update(
-                self.current_task, description="正在 ping 所有IP地址..."
+                latency_task_id,
+                completed=total_ips,
+                visible=True,
             )
-            ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
-            results = []
-            for result in await asyncio.gather(*ping_tasks):
-                results.append(result)
-        else:
-            ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
-            results = []
-            for result in await asyncio.gather(*ping_tasks):
-                results.append(result)
 
         valid_results = [result for result in results if result[1] < latency_limit]
 
         if not valid_results:
-            logging.warning(f"未找到延迟小于 {latency_limit}ms 的IP。")
+            logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
             if results:
                 latency_limit = latency_limit * 2
-                logging.info(f"放宽延迟限制为 {latency_limit}ms 重新搜索...")
+                logging.info(f"放宽延迟限制为 {latency_limit}ms 重新挑选...")
                 valid_results = [
                     result for result in results if result[1] < latency_limit
                 ]
@@ -486,16 +547,16 @@ class LatencyTester:
         else:
             best_hosts = sorted(valid_results, key=lambda x: x[1])[: self.hosts_num]
 
-        if self.progress and self.current_task:
-            self.progress.update(self.current_task, advance=1)
-
-        rprint(
-            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 延迟 < {latency_limit}ms 丨 [{group_name}] :[/bold yellow]"
-        )
-        for ip, time in best_hosts:
+        if args.verbose:
             rprint(
-                f"  [green]{ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
+                f"[bold yellow]最快DNS主机 {'(IPv4/IPv6)' if ipv6_results else '(IPv4 Only)'} 延迟 < {latency_limit}ms | [{group_name}] "
+                f"{domains[0] if len(domains) == 1 else f'{len(domains)} 域名合用 IP'}:[/bold yellow]"
             )
+
+            for ip, time in best_hosts:
+                rprint(
+                    f"  [green]{ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
+                )
         return best_hosts
 
 
@@ -565,8 +626,11 @@ class HostsManager:
 
         rprint("\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
 
+        save_hosts_content = []  # 提取新内容文本
+
         # 1. 添加标题
-        new_content.append("\n# cnNetTool Start\n")
+        new_content.append(f"\n# cnNetTool Start in {update_time}")
+        save_hosts_content.append(f"\n# cnNetTool Start in {update_time}")
 
         # 2. 添加主机条目
         for entry in new_entries:
@@ -589,6 +653,7 @@ class HostsManager:
             # 返回格式化后的条目
             formatedEntry = f"{ip}{tabs}{domain}"
             new_content.append(formatedEntry)
+            save_hosts_content.append(formatedEntry)
             rprint(f"+ {formatedEntry}")
 
         # 3. 添加项目描述
@@ -599,10 +664,28 @@ class HostsManager:
                 "# cnNetTool End\n",
             ]
         )
+        save_hosts_content.extend(
+            [
+                f"\n# Update time: {update_time}",
+                "# GitHub仓库: https://github.com/sinspired/cnNetTool",
+                "# cnNetTool End\n",
+            ]
+        )
 
         # 4. 写入hosts文件
         with open(self.hosts_file_path, "w") as f:
             f.write("\n".join(new_content))
+
+        # 保存 hosts 文本
+        with open("hosts", "w") as f:
+            f.write("\n".join(save_hosts_content))
+            rprint(
+                f"\n[blue]已生成 hosts 文件,位于: [underline]hosts[/underline][/blue]"
+            )
+
+        Utils.write_readme_file(
+            save_hosts_content, "README_template.md", f"{update_time}"
+        )
 
 
 # -------------------- 主控制模块 -------------------- #
@@ -619,11 +702,7 @@ class HostsUpdater:
         self.tester = tester
         self.hosts_manager = hosts_manager
         # 添加并发限制
-        self.semaphore = asyncio.Semaphore(5)  # 限制并发请求数
-        # 添加计数器用于控制ipaddress.com的访问频率
-        self.ipaddress_counter = 0
-        self.ipaddress_limit = 20  # 每批次最大请求数
-        self.ipaddress_delay = 60  # 批次之间的延迟(秒)
+        self.semaphore = asyncio.Semaphore(200)  # 限制并发请求数
 
         # 添加进度显示实例
         self.progress = Progress(
@@ -634,29 +713,42 @@ class HostsUpdater:
         )
 
     async def _resolve_domains_batch(
-        self, domains: List[str], task_id: TaskID
+        self, domains: List[str], resolve_task_id: TaskID
     ) -> Dict[str, Set[str]]:
         """批量解析域名，带进度更新"""
         results = {}
         total_domains = len(domains)
+
+        # 更新进度条描述和总数
+        if self.progress and resolve_task_id:
+            self.progress.update(
+                resolve_task_id,
+                total=total_domains,
+            )
 
         async with self.semaphore:
             for i, domain in enumerate(domains, 1):
                 try:
                     ips = await self.resolver.resolve_domain(domain)
                     results[domain] = ips
-                    # 更新进度
-                    self.progress.update(task_id, advance=1)
                 except Exception as e:
                     logging.error(f"解析域名 {domain} 失败: {e}")
                     results[domain] = set()
 
-                if "_resolve_via_ipaddress" in str(self.resolver.resolve_domain):
-                    self.ipaddress_counter += 1
-                    if self.ipaddress_counter >= self.ipaddress_limit:
-                        await asyncio.sleep(self.ipaddress_delay)
-                        self.ipaddress_counter = 0
+                # 更新进度
+                self.progress.update(
+                    resolve_task_id,
+                    advance=1,
+                    visible=True,
+                )
 
+        if self.progress and resolve_task_id:
+            # 确保进度完结
+            self.progress.update(
+                resolve_task_id,
+                completed=total_domains,
+                visible=True,
+            )
         return results
 
     async def _process_domain_group(self, group: DomainGroup, index: int) -> List[str]:
@@ -664,21 +756,48 @@ class HostsUpdater:
         entries = []
         all_ips = group.ips.copy()
 
-        # 创建该组的进度任务
-        task_id = self.progress.add_task(
-            f"处理组 {group.name}", total=len(group.domains)
+        # 创建 seperateGroup 的主进度任务
+        seperateGroup_task_id = self.progress.add_task(
+            f"处理组 {group.name}",
+            total=len(group.domains),
+            visible=False,
         )
 
-        # 为 LatencyTester 设置进度显示
-        self.tester.set_progress(self.progress, f"处理组 {group.name} 的延迟测试")
+        # 创建 seperateGroup 的主进度任务
+        shareGroup_task_id = self.progress.add_task(
+            f"处理组 {group.name}",
+            total=100,
+            visible=False,
+        )
+
+        # 为 _resolve_domains_batch 设置 [域名解析] 子任务进度显示
+        resolve_task_id = self.progress.add_task(
+            f"- [域名解析] {group.name}",
+            total=0,  # 初始设为0，后续会更新
+            visible=False,  # 初始隐藏，等需要时显示
+        )
+
+        # 为 LatencyTester 设置子任务进度显示
+        latency_task_id = self.progress.add_task(
+            f"- [测试延迟] {group.name}",
+            total=0,  # 初始设为0，后续会更新
+            visible=False,  # 初始隐藏，等需要时显示
+        )
+
+        self.tester.set_progress(self.progress, latency_task_id)
 
         if group.group_type == GroupType.SEPARATE:
             for domain in group.domains:
-                resolved_ips = await self._resolve_domains_batch([domain], task_id)
+                resolved_ips = await self._resolve_domains_batch(
+                    [domain], resolve_task_id
+                )
                 domain_ips = resolved_ips.get(domain, set())
 
+                # 隐藏域名解析进度条
+                self.progress.update(resolve_task_id, visible=False)
+
                 if not domain_ips:
-                    logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
+                    logging.warning(f"{domain} 未解析到任何可用IP。跳过该域名。")
                     continue
 
                 fastest_ips = await self.tester.get_lowest_latency_hosts(
@@ -686,64 +805,99 @@ class HostsUpdater:
                     [domain],
                     domain_ips,
                     self.resolver.max_latency,
+                    latency_task_id,
                 )
                 if fastest_ips:
                     entries.extend(f"{ip}\t{domain}" for ip, latency in fastest_ips)
                 else:
-                    logging.warning(f"{domain} 未找到延迟满足要求的IP。")
+                    logging.warning(f"{domain} 未发现满足延迟检测要求的IP。")
+                # 隐藏延迟测试进度条
+                self.progress.update(latency_task_id, visible=False)
+                # 主进度更新
+                self.progress.update(
+                    seperateGroup_task_id,
+                    advance=1,
+                    visible=True,
+                )
+
+                self.progress.update(
+                    seperateGroup_task_id,
+                    visible=False,
+                )
+
+            # 标记该组处理完成
+            self.progress.update(
+                seperateGroup_task_id,
+                description=f"处理组 {group.name}",
+                completed=len(group.domains),
+                visible=True,
+            )
+
         else:
+            # 共用主机的域名组
             resolved_ips_dict = await self._resolve_domains_batch(
-                group.domains, task_id
+                group.domains, resolve_task_id
+            )
+            # 隐藏域名解析进度条
+            self.progress.update(resolve_task_id, visible=False)
+            self.progress.update(
+                shareGroup_task_id,
+                visible=True,
+                advance=40,
             )
 
             for ips in resolved_ips_dict.values():
                 all_ips.update(ips)
 
             if not all_ips:
-                logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
+                logging.warning(f"组 {group.name} 未解析到任何可用IP。跳过该组。")
                 return entries
 
-            logging.info(f"组 {group.name} 找到 {len(all_ips)} 个 DNS 主机记录")
+            logging.debug(f"组 {group.name} 解析到 {len(all_ips)} 个 DNS 主机记录")
 
             fastest_ips = await self.tester.get_lowest_latency_hosts(
                 group.name,
                 group.domains,
                 all_ips,
                 self.resolver.max_latency,
+                latency_task_id,
             )
+            self.progress.update(
+                shareGroup_task_id,
+                visible=True,
+                advance=40,
+            )
+
+            # 隐藏延迟测试进度条
+            self.progress.update(latency_task_id, visible=False)
 
             if fastest_ips:
                 for domain in group.domains:
                     entries.extend(f"{ip}\t{domain}" for ip, latency in fastest_ips)
-                    logging.info(f"已处理域名: {domain}")
+                    # logging.info(f"已处理域名: {domain}")
             else:
-                logging.warning(f"组 {group.name} 未找到延迟满足要求的IP。")
+                logging.warning(f"组 {group.name} 未发现满足延迟检测要求的IP。")
 
-        # 标记该组处理完成
-        self.progress.update(task_id, completed=len(group.domains))
+            self.progress.update(
+                shareGroup_task_id,
+                visible=True,
+                advance=20,
+            )
+
         return entries
 
     async def update_hosts(self):
-        """优化后的主更新函数，支持并发进度显示"""
+        """主更新函数，支持并发进度显示"""
         cache_valid = self.resolver._is_dns_cache_valid()
 
         with self.progress:
-            if cache_valid:
-                # 并发处理所有组
-                tasks = [
-                    self._process_domain_group(group, i)
-                    for i, group in enumerate(self.domain_groups, 1)
-                ]
-                all_entries_lists = await asyncio.gather(*tasks)
-                all_entries = [
-                    entry for entries in all_entries_lists for entry in entries
-                ]
-            else:
-                # 顺序处理所有组
-                all_entries = []
-                for i, group in enumerate(self.domain_groups, 1):
-                    entries = await self._process_domain_group(group, i)
-                    all_entries.extend(entries)
+            # 并发处理所有组
+            tasks = [
+                self._process_domain_group(group, i)
+                for i, group in enumerate(self.domain_groups, 1)
+            ]
+            all_entries_lists = await asyncio.gather(*tasks)
+            all_entries = [entry for entries in all_entries_lists for entry in entries]
 
         if all_entries:
             self.hosts_manager.write_to_hosts_file(all_entries)
@@ -787,25 +941,20 @@ class Config:
             name="GitHub Services",
             group_type=GroupType.SEPARATE,
             domains=[
-                "github.com",
-                "api.github.com",
-                "gist.github.com",
                 "alive.github.com",
-                "github.community",
+                "api.github.com",
                 "central.github.com",
                 "codeload.github.com",
                 "collector.github.com",
-                "vscode.dev",
-                "github.blog",
-                "live.github.com",
-                "education.github.com",
+                "gist.github.com",
+                "github.com",
+                "github.community",
                 "github.global.ssl.fastly.net",
-                "pipelines.actions.githubusercontent.com",
                 "github-com.s3.amazonaws.com",
-                "github-cloud.s3.amazonaws.com",
-                "github-production-user-asset-6210df.s3.amazonaws.com",
                 "github-production-release-asset-2e65be.s3.amazonaws.com",
-                "github-production-repository-file-5c1aeb.s3.amazonaws.com",
+                "live.github.com",
+                "pipelines.actions.githubusercontent.com",
+                "github.githubassets.com",
             ],
             ips={},
         ),
@@ -816,7 +965,6 @@ class Config:
                 "github.io",
                 "githubstatus.com",
                 "assets-cdn.github.com",
-                "github.githubassets.com",
             ],
             ips={},
         ),
@@ -836,11 +984,11 @@ class Config:
                 "desktop.githubusercontent.com",
                 "favicons.githubusercontent.com",
                 "github.map.fastly.net",
-                "raw.githubusercontent.com",
                 "media.githubusercontent.com",
                 "objects.githubusercontent.com",
-                "user-images.githubusercontent.com",
                 "private-user-images.githubusercontent.com",
+                "raw.githubusercontent.com",
+                "user-images.githubusercontent.com",
             ],
             ips={},
         ),
@@ -885,7 +1033,7 @@ class Config:
             ips={},
         ),
         DomainGroup(
-            name="IMDB 图片/视频/js脚本",
+            name="IMDB CDN",
             group_type=GroupType.SEPARATE,
             domains=[
                 "m.media-amazon.com",
@@ -926,7 +1074,7 @@ class Config:
             },
         ),
         DomainGroup(
-            name="JetBrain 插件下载",
+            name="JetBrain 插件",
             domains=[
                 "plugins.jetbrains.com",
                 "download.jetbrains.com",

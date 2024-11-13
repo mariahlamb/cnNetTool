@@ -6,6 +6,8 @@ __pycache__
 build
 dist
 *test*.*
+*_temp*.*
+*_tmp*.*
 .idea/
 *cache/
 
@@ -23,3 +25,6 @@ debhelper-build-stamp
 *.substvars
 *.csv
 .vagrant
+
+# 下方文件包含进仓库
+!README_template.md

@@ -535,10 +535,10 @@ class HostsManager:
             .replace("+0800", "+08:00")
         )
 
-        rprint("\n[bold yellow]正在更新hosts文件...[/bold yellow]")
+        rprint("\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
 
         # 1. 添加标题
-        new_content.append("\n# cnNetTool Start\n")
+        new_content.append(f"\n# cnNetTool Start in {update_time}")
 
         # 2. 添加主机条目
         for entry in new_entries:
@@ -696,25 +696,20 @@ class Config:
             name="GitHub Services",
             group_type=GroupType.SEPARATE,
             domains=[
-                "github.com",
-                "api.github.com",
-                "gist.github.com",
                 "alive.github.com",
-                "github.community",
+                "api.github.com",
                 "central.github.com",
                 "codeload.github.com",
                 "collector.github.com",
-                "vscode.dev",
-                "github.blog",
-                "live.github.com",
-                "education.github.com",
+                "gist.github.com",
+                "github.com",
+                "github.community",
                 "github.global.ssl.fastly.net",
-                "pipelines.actions.githubusercontent.com",
                 "github-com.s3.amazonaws.com",
-                "github-cloud.s3.amazonaws.com",
-                "github-production-user-asset-6210df.s3.amazonaws.com",
                 "github-production-release-asset-2e65be.s3.amazonaws.com",
-                "github-production-repository-file-5c1aeb.s3.amazonaws.com",
+                "live.github.com",
+                "pipelines.actions.githubusercontent.com",
+                "github.githubassets.com",
             ],
             ips={},
         ),
@@ -725,7 +720,6 @@ class Config:
                 "github.io",
                 "githubstatus.com",
                 "assets-cdn.github.com",
-                "github.githubassets.com",
             ],
             ips={},
         ),
@@ -745,11 +739,11 @@ class Config:
                 "desktop.githubusercontent.com",
                 "favicons.githubusercontent.com",
                 "github.map.fastly.net",
-                "raw.githubusercontent.com",
                 "media.githubusercontent.com",
                 "objects.githubusercontent.com",
-                "user-images.githubusercontent.com",
                 "private-user-images.githubusercontent.com",
+                "raw.githubusercontent.com",
+                "user-images.githubusercontent.com",
             ],
             ips={},
         ),
@@ -921,7 +915,7 @@ class Config:
             ips={},
         ),
         DomainGroup(
-            name="IMDB 图片/视频/js脚本",
+            name="IMDB CDN",
             group_type=GroupType.SEPARATE,
             domains=[
                 "m.media-amazon.com",
@@ -962,7 +956,7 @@ class Config:
             },
         ),
         DomainGroup(
-            name="JetBrain 插件下载",
+            name="JetBrain 插件",
             domains=[
                 "plugins.jetbrains.com",
                 "download.jetbrains.com",
