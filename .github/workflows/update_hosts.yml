@@ -43,7 +43,7 @@ jobs:
           python -V
           which python
           echo "Running script with sudo..."
-          sudo python SetHosts.py --verbose
+          sudo python SetHosts.py --no-input
       
       - name: Commit and push changes
         env:

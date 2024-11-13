@@ -81,6 +81,9 @@ def parse_args():
         action="store_true",
         help="打印运行信息",
     )
+    parser.add_argument(
+        "--no-input", action="store_true", help="Run without waiting for user input"
+    )
     return parser.parse_args()
 
 
@@ -1172,7 +1175,8 @@ async def main():
     rprint(
         f"[bold]代码运行时间:[/bold] [cyan]{total_time.total_seconds():.2f} 秒[/cyan]"
     )
-    input("\n任务执行完毕，按任意键退出！")
+    if not args.no_input:
+        input("\n任务执行完毕，按任意键退出！")
 
 
 if __name__ == "__main__":
