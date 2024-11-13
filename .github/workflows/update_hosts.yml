@@ -2,9 +2,6 @@ name: Update hosts
 
 on:
   push:
-    paths:
-      - 'setHosts.py'
-      - 'requirements.txt'
   schedule:
     - cron: '0 */4 * * *'
   workflow_dispatch:
@@ -46,7 +43,7 @@ jobs:
           # 添加详细输出以便调试
           python -V
           which python
-          sudo -E python setHosts.py --verbose
+          sudo -E python SetHosts.py --verbose
       
       - name: Commit and push changes
         env:
