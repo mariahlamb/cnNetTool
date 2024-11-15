@@ -29,81 +29,10 @@
 #### 1.2.1 复制下面的内容
 
 ```bash
-
-# cnNetTool Start in 2024-11-16 00:11:45 +08:00
-140.82.113.25	alive.github.com
-140.82.114.5	api.github.com
-140.82.114.21	central.github.com
-140.82.114.10	codeload.github.com
-140.82.113.22	collector.github.com
-140.82.112.4	gist.github.com
-140.82.112.3	github.com
-140.82.114.18	github.community
-146.75.29.194	github.global.ssl.fastly.net
-52.216.244.252	github-com.s3.amazonaws.com
-52.217.236.49	github-production-release-asset-2e65be.s3.amazonaws.com
-140.82.113.26	live.github.com
-13.107.42.16	pipelines.actions.githubusercontent.com
-185.199.110.154	github.githubassets.com
-185.199.110.153	github.io
-185.199.110.153	githubstatus.com
-185.199.110.153	assets-cdn.github.com
-185.199.111.133	avatars.githubusercontent.com
-185.199.111.133	avatars0.githubusercontent.com
-185.199.111.133	avatars1.githubusercontent.com
-185.199.111.133	avatars2.githubusercontent.com
-185.199.111.133	avatars3.githubusercontent.com
-185.199.111.133	avatars4.githubusercontent.com
-185.199.111.133	avatars5.githubusercontent.com
-185.199.111.133	camo.githubusercontent.com
-185.199.111.133	cloud.githubusercontent.com
-185.199.111.133	desktop.githubusercontent.com
-185.199.111.133	favicons.githubusercontent.com
-185.199.111.133	github.map.fastly.net
-185.199.111.133	media.githubusercontent.com
-185.199.111.133	objects.githubusercontent.com
-185.199.111.133	private-user-images.githubusercontent.com
-185.199.111.133	raw.githubusercontent.com
-185.199.111.133	user-images.githubusercontent.com
-18.160.200.13	tmdb.org
-18.160.200.13	api.tmdb.org
-18.160.200.13	files.tmdb.org
-54.230.18.35	themoviedb.org
-54.230.18.35	api.themoviedb.org
-54.230.18.35	www.themoviedb.org
-54.230.18.35	auth.themoviedb.org
-185.93.1.249	image.tmdb.org
-185.93.1.249	images.tmdb.org
-52.94.225.248	imdb.com
-3.168.35.144	www.imdb.com
-52.94.237.74	secure.imdb.com
-3.168.35.144	s.media-imdb.com
-52.94.237.74	us.dd.imdb.com
-3.168.35.144	www.imdb.to
-52.94.228.167	imdb-webservice.amazon.com
-44.215.137.99	origin-www.imdb.com
-108.156.119.233	m.media-amazon.com
-104.123.159.75	Images-na.ssl-images-amazon.com
-3.168.55.205	images-fe.ssl-images-amazon.com
-146.75.29.16	images-eu.ssl-images-amazon.com
-146.75.29.16	ia.media-imdb.com
-146.75.29.16	f.media-amazon.com
-18.154.185.87	imdb-video.media-imdb.com
-13.226.23.174	dqpnq362acqdi.cloudfront.net
-142.250.191.106	translate.google.com
-142.250.191.106	translate.googleapis.com
-142.250.191.106	translate-pa.googleapis.com
-52.84.125.88	plugins.jetbrains.com
-52.84.125.88	download.jetbrains.com
-52.84.125.88	cache-redirector.jetbrains.com
-
-# Update time: 2024-11-16 00:11:45 +08:00
-# GitHub仓库: https://github.com/sinspired/cnNetTool
-# cnNetTool End
-
+{hosts_str}
 ```
 
-该内容会自动定时更新， 数据更新时间：2024-11-16 00:11:45 +08:00
+该内容会自动定时更新， 数据更新时间：{update_time}
 
 #### 1.2.2 修改 hosts 文件
 

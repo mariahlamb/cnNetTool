@@ -274,7 +274,7 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                                 "static",
                                 ipv4_dns_list[0],
                             ],
-                            check=True
+                            check=True,
                         )
                         for dns in ipv4_dns_list[1:]:
                             subprocess.run(
@@ -288,7 +288,7 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                                     dns,
                                     "index=2",
                                 ],
-                                check=True
+                                check=True,
                             )
                     except subprocess.CalledProcessError as e:
                         logger.error(f"设置IPv4 DNS for {interface}失败: {e}")
@@ -308,7 +308,7 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                                 "static",
                                 ipv6_dns_list[0],
                             ],
-                            check=True
+                            check=True,
                         )
                         for dns in ipv6_dns_list[1:]:
                             subprocess.run(
@@ -322,7 +322,7 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                                     dns,
                                     "index=2",
                                 ],
-                                check=True
+                                check=True,
                             )
                     except subprocess.CalledProcessError as e:
                         logger.error(f"设置IPv6 DNS for {interface}失败: {e}")
@@ -583,7 +583,19 @@ def run_as_admin():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="DNS解析器和设置工具,请使用管理员权限运行"
+        description=(
+            "------------------------------------------------------------\n"
+            "DNS解析器和设置工具,请使用管理员权限运行,自动设置最佳 DNS 服务器。\n"
+            "------------------------------------------------------------\n"
+        ),
+        epilog=(
+            "------------------------------------------------------------\n"
+            "项目: https://github.com/sinspired/cnNetTool\n"
+            "作者: Sinspired\n"
+            "邮箱: ggmomo@gmail.com\n"
+            "发布: 2024-11-11\n"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,  # 允许换行格式
     )
     parser.add_argument("--debug", action="store_true", help="启用调试日志")
     parser.add_argument(

@@ -1,0 +1,51 @@
+name: Update hosts
+
+on:
+  push:
+    paths:
+      - 'setHosts.py'
+      - 'requirements.txt'
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-hosts:
+    runs-on: ubuntu-latest
+    
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          sudo pip install -r requirements.txt
+      
+      - name: Run hosts update script
+        run: |
+          sudo python setHosts.py
+      
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "更新 hosts"
+          file_pattern: '.'
+          commit_user_name: action_bot
+          commit_user_email: sinspired@gmail.com
+          push_options: '--force'
