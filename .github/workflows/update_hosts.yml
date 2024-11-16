@@ -44,7 +44,7 @@ jobs:
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "更新 hosts"
+          commit_message: "chore: update hosts"
           file_pattern: '.'
           commit_user_name: action_bot
           commit_user_email: sinspired@gmail.com

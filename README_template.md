@@ -32,7 +32,7 @@
 {hosts_str}
 ```
 
-该内容会自动定时更新， 数据更新时间：{update_time}
+以上内容会自动定时更新， 数据更新时间：{update_time}
 
 #### 1.2.2 修改 hosts 文件
 
@@ -49,6 +49,8 @@ hosts 文件在每个系统的位置不一，详情如下：
 2. Linux、Mac 使用 Root 权限：`sudo vi /etc/hosts`。
 3. iPhone、iPad 须越狱、Android 必须要 root。
 
+> [!NOTE]
+> 请先把 `hosts` 文件复制到其他目录，修改后再复制回去，否则可能无法修改。
 
 ## 二、安装
 
@@ -70,7 +72,7 @@ pip install -r requirements.txt
 * --debug 启用调试日志
 * --show-availbale-list, --list 显示可用dns列表，通过 --num 控制显示数量
 * --best-dns-num BEST_DNS_NUM, --num 显示最佳DNS服务器的数量
-* --algorithm --mode {region,overall} 默认 `region` 平衡IPv4和ipv6 DNS
+* --algorithm --mode {region,overall} 默认 `region` 平衡IPv4和ipv6 DNS，选择 `overall` 则会在所有IP中选择最快IP
 * --show-resolutions, --show 显示域名解析结果
 
 ### Hosts文件工具 `SetHosts.py`
