@@ -1,5 +1,6 @@
 from math import floor
 import os
+import ssl
 import sys
 from pathlib import Path
 import dns.resolver
@@ -475,6 +476,43 @@ class LatencyTester:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
+    async def is_cert_valid(
+            self,domain:str,ip:str,port:int=443
+    ) -> bool:
+            
+        # 设置SSL上下文，用于证书验证
+        context = ssl.create_default_context()
+        context.verify_mode = ssl.CERT_REQUIRED  # 验证服务器证书
+        context.check_hostname = True  # 确保证书主机名匹配
+        
+        try:
+            # 1. 尝试与IP地址建立SSL连接
+            with socket.create_connection((ip, port), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    # 检查证书的有效期
+                    not_after = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+                    if not_after < datetime.now():
+                        logging.debug(f"{domain} ({ip}): 证书已过期")
+                        return False
+
+                    # 验证证书域名（由context自动完成），同时获取连接状态
+                    logging.debug(f"{domain} ({ip}): SSL证书有效，截止日期为 {not_after}")
+                    return True
+
+        except ssl.SSLError as e:
+            logging.debug(f"{domain} ({ip}): SSL错误 - {e}")
+            return False
+        except socket.timeout as e:
+            logging.debug(f"{domain} ({ip}): 连接超时 - {e}")
+            return False
+        except ConnectionError as e:
+            logging.debug(f"{domain} ({ip}): 连接被强迫关闭，ip有效 - {e}")
+            return True
+        except Exception as e:
+            logging.error(f"{domain} ({ip}): 其他错误 - {e}")
+            return False
+    
     async def get_lowest_latency_hosts(
         self,
         group_name: str,
@@ -534,18 +572,35 @@ class LatencyTester:
                 valid_results = [
                     result for result in results if result[1] < latency_limit
                 ]
-            if not valid_results:
+                if not valid_results:
+                    logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
+                    return []
+            else:
                 return []
+
+        # 排序结果
+        valid_results = sorted(valid_results, key=lambda x: x[1])
 
         ipv4_results = [r for r in valid_results if not Utils.is_ipv6(r[0])]
         ipv6_results = [r for r in valid_results if Utils.is_ipv6(r[0])]
 
         best_hosts = []
-        if ipv4_results and ipv6_results:
-            best_hosts.append(min(ipv4_results, key=lambda x: x[1]))
-            best_hosts.append(min(ipv6_results, key=lambda x: x[1]))
-        else:
-            best_hosts = sorted(valid_results, key=lambda x: x[1])[: self.hosts_num]
+        selected_count = 0
+
+        # 检测 IPv4 证书有效性
+        for ip, latency in ipv4_results:
+            if await self.is_cert_valid(domains[0], ip):  # shareGroup会传入多个域名，只需检测第一个就行
+                best_hosts.append((ip, latency))
+                selected_count += 1
+                if ipv6_results or selected_count >= self.hosts_num:
+                    break
+
+        # 检测 IPv6 证书有效性
+        if ipv6_results:
+            for ip, latency in ipv6_results:
+                if await self.is_cert_valid(domains[0], ip):
+                    best_hosts.append((ip, latency))
+                    break
 
         if args.verbose:
             rprint(
@@ -558,6 +613,7 @@ class LatencyTester:
                     f"  [green]{ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
                 )
         return best_hosts
+
 
 
 # -------------------- Hosts文件管理 -------------------- #
@@ -1029,7 +1085,7 @@ class Config:
                 "us.dd.imdb.com",
                 "www.imdb.to",
                 "imdb-webservice.amazon.com",
-                "origin-www.imdb.com",
+                # "origin-www.imdb.com",
                 "origin.www.geo.imdb.com",
             ],
             ips={},

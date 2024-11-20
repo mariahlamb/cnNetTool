@@ -1,4 +1,5 @@
 import os
+import ssl
 import sys
 from pathlib import Path
 import dns.resolver
@@ -392,6 +393,45 @@ class LatencyTester:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
+    async def is_cert_valid(self, domain: str, ip: str, port: int = 443) -> bool:
+
+        # 设置SSL上下文，用于证书验证
+        context = ssl.create_default_context()
+        context.verify_mode = ssl.CERT_REQUIRED  # 验证服务器证书
+        context.check_hostname = True  # 确保证书主机名匹配
+
+        try:
+            # 1. 尝试与IP地址建立SSL连接
+            with socket.create_connection((ip, port), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    # 检查证书的有效期
+                    not_after = datetime.strptime(
+                        cert["notAfter"], "%b %d %H:%M:%S %Y %Z"
+                    )
+                    if not_after < datetime.now():
+                        logging.debug(f"{domain} ({ip}): 证书已过期")
+                        return False
+
+                    # 验证证书域名（由context自动完成），同时获取连接状态
+                    logging.debug(
+                        f"{domain} ({ip}): SSL证书有效，截止日期为 {not_after}"
+                    )
+                    return True
+
+        except ssl.SSLError as e:
+            logging.debug(f"{domain} ({ip}): SSL错误 - {e}")
+            return False
+        except socket.timeout as e:
+            logging.debug(f"{domain} ({ip}): 连接超时 - {e}")
+            return False
+        except ConnectionError as e:
+            logging.debug(f"{domain} ({ip}): 连接被强迫关闭，ip有效 - {e}")
+            return True
+        except Exception as e:
+            logging.error(f"{domain} ({ip}): 其他错误 - {e}")
+            return False
+
     async def get_lowest_latency_hosts(
         self, domains: List[str], file_ips: Set[str], latency_limit: int
     ) -> List[Tuple[str, float]]:
@@ -417,7 +457,7 @@ class LatencyTester:
             all_ips.update(file_ips)
 
         rprint(
-            f"[bright_black]- 找到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
+            f"[bright_black]- 解析到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
         )
 
         if args.log.upper() == "INFO":
@@ -441,25 +481,49 @@ class LatencyTester:
         valid_results = [result for result in results if result[1] < latency_limit]
 
         if not valid_results:
-            logging.warning(f"未找到延迟小于 {latency_limit}ms 的IP。")
+            logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
             if results:
                 latency_limit = latency_limit * 2
-                logging.info(f"放宽延迟限制为 {latency_limit}ms 重新搜索...")
+                logging.info(f"放宽延迟限制为 {latency_limit}ms 重新挑选...")
                 valid_results = [
                     result for result in results if result[1] < latency_limit
                 ]
-            if not valid_results:
+                if not valid_results:
+                    logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
+                    return []
+            else:
                 return []
+
+        # 排序结果
+        valid_results = sorted(valid_results, key=lambda x: x[1])
+
+        if len(valid_results) < len(all_ips):
+            rprint(
+                f"[bright_black]- 检测到 [bold bright_green]{len(valid_results)}[/bold bright_green] 个有效IP地址[/bright_black]"
+            )
 
         ipv4_results = [r for r in valid_results if not Utils.is_ipv6(r[0])]
         ipv6_results = [r for r in valid_results if Utils.is_ipv6(r[0])]
 
         best_hosts = []
-        if ipv4_results and ipv6_results:
-            best_hosts.append(min(ipv4_results, key=lambda x: x[1]))
-            best_hosts.append(min(ipv6_results, key=lambda x: x[1]))
-        else:
-            best_hosts = sorted(valid_results, key=lambda x: x[1])[: self.hosts_num]
+        selected_count = 0
+
+        # 检测 IPv4 证书有效性
+        for ip, latency in ipv4_results:
+            if await self.is_cert_valid(domains[0], ip):  # shareGroup会传入多个域名，只需检测第一个就行
+                best_hosts.append((ip, latency))
+                selected_count += 1
+                break
+
+            if ipv6_results or selected_count >= self.hosts_num:
+                break
+
+        # 检测 IPv6 证书有效性
+        if ipv6_results:
+            for ip, latency in ipv6_results:
+                if await self.is_cert_valid(domains[0], ip):
+                    best_hosts.append((ip, latency))
+                    break
 
         rprint(
             f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit}ms ：[/bold yellow]"
@@ -632,7 +696,7 @@ class HostsUpdater:
                     logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
                     continue
 
-                rprint(f"  找到 {len(all_ips)} 个 DNS 主机记录")
+                # rprint(f"  找到 {len(all_ips)} 个 DNS 主机记录")
 
                 fastest_ips = await self.tester.get_lowest_latency_hosts(
                     # [group.domains[0]],  # 只需传入一个域名，因为只是用来测试IP
