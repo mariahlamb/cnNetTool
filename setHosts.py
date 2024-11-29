@@ -81,6 +81,14 @@ def parse_args():
         action="store_true",
         help="打印运行信息",
     )
+    parser.add_argument(
+    "-n",
+    "--NotUseDnsServers",
+    action="store_true",
+    help="不使用DNS服务器解析（避免GitHub等被dns污染的网站获取错误地址)",
+    )
+
+    
     return parser.parse_args()
 
 
@@ -283,8 +291,9 @@ class DomainResolver:
         ips = set()
 
         # 1. 首先通过常规DNS服务器解析
-        dns_ips = await self._resolve_via_dns(domain)
-        ips.update(dns_ips)
+        if not args.NotUseDnsServers:
+            dns_ips = await self._resolve_via_dns(domain)
+            ips.update(dns_ips)
 
         # 2. 然后通过DNS_records解析
         # 由于init时已经处理了过期文件，这里只需要检查域名是否在缓存中
@@ -331,7 +340,7 @@ class DomainResolver:
 
         return ips
 
-    def retry_async(tries=3, delay=0):
+    def retry_async(tries=3, delay=1):
         def decorator(func):
             @wraps(func)
             async def wrapper(*args, **kwargs):
