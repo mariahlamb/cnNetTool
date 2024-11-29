@@ -14,12 +14,11 @@ import socket
 from enum import Enum
 from datetime import datetime, timedelta, timezone
 from typing import List, Set, Optional, Dict, Tuple
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich import print as rprint
 import ctypes
 import re
 from functools import wraps
-
+from rich import print as rprint
+from rich.progress import Progress, SpinnerColumn, TextColumn
 import wcwidth
 
 # -------------------- 常量设置 -------------------- #
@@ -52,21 +51,21 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--log",
+        "-log",
         default="info",
         choices=["debug", "info", "warning", "error"],
         help="设置日志输出等级",
     )
     parser.add_argument(
+        "-num",
         "--hosts-num",
-        "--num",
         default=HOSTS_NUM,
         type=int,
         help="限定Hosts主机 ip 数量",
     )
     parser.add_argument(
+        "-max",
         "--max-latency",
-        "--max",
         default=MAX_LATENCY,
         type=int,
         help="设置允许的最大延迟（毫秒）",
@@ -102,6 +101,105 @@ class Utils:
             rprint(
                 f"\n[blue]已备份 [underline]{hosts_file_path}[/underline] 到 [underline]{backup_path}[/underline][/blue]"
             )
+
+    @staticmethod
+    def write_readme_file(
+        hosts_content: List[str], temp_file_path: str, update_time: str
+    ):
+        """
+        根据模板文件生成 README.md 文件,并将 hosts 文件内容写入其中。
+
+        参数:
+        hosts_content (List[str]): hosts 文件的内容,以列表形式传入
+        temp_file_path (str): 输出的 README.md 文件路径
+        update_time (str): hosts 文件的更新时间,格式为 "YYYY-MM-DD HH:MM:SS +0800"
+        """
+        try:
+            # 获取template文件的绝对路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            template_path = os.path.join(current_dir, temp_file_path)
+
+            if not os.path.exists(template_path):
+                raise FileNotFoundError(f"模板文件未找到: {template_path}")
+
+            # 读取模板文件
+            with open(template_path, "r", encoding="utf-8") as temp_fb:
+                template_content = temp_fb.read()
+
+            # 将hosts内容转换为字符串
+            hosts_str = "\n".join(hosts_content)
+
+            # 使用替换方法而不是format
+            readme_content = template_content.replace("{hosts_str}", hosts_str)
+            readme_content = readme_content.replace("{update_time}", update_time)
+
+            # 写入新文件
+            with open("README.md", "w", encoding="utf-8") as output_fb:
+                output_fb.write(readme_content)
+
+            rprint(
+                f"[blue]已更新 README.md 文件,位于: [underline]README.md[/underline][/blue]\n"
+            )
+
+        except FileNotFoundError as e:
+            print(f"错误: {str(e)}")
+        except Exception as e:
+            print(f"生成 README.md 文件时发生错误: {str(e)}")
+
+    def get_formatted_line(char="-", color="green", width_percentage=0.97):
+        """
+        生成格式化的分隔线
+
+        参数:
+            char: 要重复的字符
+            color: rich支持的颜色名称
+            width_percentage: 终端宽度的百分比（0.0-1.0）
+        """
+        # 获取终端宽度
+        terminal_width = shutil.get_terminal_size().columns
+        # 计算目标宽度（终端宽度的指定百分比）
+        target_width = floor(terminal_width * width_percentage)
+
+        # 生成重复字符
+        line = char * target_width
+
+        # 返回带颜色标记的行
+        return f"[{color}]{line}[/{color}]"
+
+    def get_formatted_output(text, fill_char=".", align_position=0.97):
+        """
+        格式化输出文本，确保不超出终端宽度
+
+        参数:
+            text: 要格式化的文本
+            fill_char: 填充字符
+            align_position: 终端宽度的百分比（0.0-1.0）
+        """
+        # 获取终端宽度并计算目标宽度
+        terminal_width = shutil.get_terminal_size().columns
+        target_width = floor(terminal_width * align_position)
+
+        # 移除rich标记计算实际文本长度
+        plain_text = (
+            text.replace("[blue on green]", "").replace("[/blue on green]", "")
+            # .replace("[完成]", "")
+        )
+
+        if "[完成]" in text:
+            main_text = plain_text.strip()
+            completion_mark = "[完成]"
+            # 关键修改：直接从目标宽度减去主文本长度，不再额外预留[完成]的空间
+            fill_count = target_width - len(main_text) - len(completion_mark) - 6
+            fill_count = max(0, fill_count)
+
+            filled_text = f"{main_text}{fill_char * fill_count}{completion_mark}"
+            return f"[blue on green]{filled_text}[/blue on green]"
+        else:
+            # 普通文本的处理保持不变
+            fill_count = target_width - len(plain_text.strip()) - 6
+            fill_count = max(0, fill_count)
+            filled_text = f"{plain_text.strip()}{' ' * fill_count}"
+            return f"[blue on green]{filled_text}[/blue on green]"
 
     def get_align_str(
         i,
@@ -211,8 +309,8 @@ class DomainResolver:
         ips = set()
 
         # 1. 首先通过常规DNS服务器解析
-        # dns_ips = await self._resolve_via_dns(domain)
-        # ips.update(dns_ips)
+        dns_ips = await self._resolve_via_dns(domain)
+        ips.update(dns_ips)
 
         # 2. 然后通过DNS_records解析
         # 由于init时已经处理了过期文件，这里只需要检查域名是否在缓存中
@@ -227,7 +325,7 @@ class DomainResolver:
             ips.update(ipaddress_ips)
 
         if ips:
-            logging.debug(f"成功解析 {domain}, 找到 {len(ips)} 个 DNS 主机")
+            logging.debug(f"成功解析 {domain}, 发现 {len(ips)} 个 DNS 主机")
         else:
             logging.debug(f"警告: 无法解析 {domain}")
 
@@ -267,7 +365,13 @@ class DomainResolver:
                     try:
                         return await func(*args, **kwargs)
                     except Exception as e:
+                        if attempt < tries - 1:
+                            print(f"第 {attempt + 2} 次尝试:")
+                            # logging.debug(f"通过DNS_records解析 {args[1]},第 {attempt + 2} 次尝试:")
                         if attempt == tries - 1:
+                            print(
+                                f"通过DNS_records解析 {args[1]},{tries} 次尝试后终止！"
+                            )
                             raise e
                         await asyncio.sleep(delay)
                 return None
@@ -324,11 +428,12 @@ class DomainResolver:
                         logging.debug(f"DNS_records：\n {ips}")
                     else:
                         logging.warning(
-                            f"ipaddress.com 未找到 {domain} 的 DNS_records 地址"
+                            f"ipaddress.com 未解析到 {domain} 的 DNS_records 地址"
                         )
 
         except Exception as e:
-            logging.error(f"通过DNS_records解析 {domain} 失败: {e}")
+            logging.error(f"通过DNS_records解析 {domain} 失败! {e}")
+            raise
 
         return ips
 
@@ -337,8 +442,7 @@ class DomainResolver:
 
 
 class LatencyTester:
-    def __init__(self, resolver: DomainResolver, hosts_num: int):
-        self.resolver = resolver
+    def __init__(self, hosts_num: int):
         self.hosts_num = hosts_num
 
     async def get_latency(self, ip: str, port: int = 443) -> float:
@@ -393,8 +497,51 @@ class LatencyTester:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
-    async def is_cert_valid(self, domain: str, ip: str, port: int = 443) -> bool:
+    # 异步重试装饰器
+    def retry_async(tries=3, delay=0):
+        def decorator(func):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                for attempt in range(tries):
+                    try:
+                        return await func(*args, **kwargs)
+                    except ssl.SSLError as e:
+                        # 如果是 SSL 错误，不重试，直接返回 False
+                        # print(f"SSL 错误（第 {attempt + 1} 次尝试）: {e}")
+                        return False
+                    except socket.timeout as e:
+                        # 对超时错误进行重试
+                        if attempt < tries - 1:
+                            print(f"证书验证（超时错误），第 {attempt + 2} 次尝试:")
+                            # logging.debug(f"证书验证（超时错误） {args[1]} | {args[2]},第 {attempt + 2} 次尝试:")
+                        if attempt == tries - 1:
+                            print(
+                                f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
+                            )
+                            return False
+                        await asyncio.sleep(delay)
+                    except ConnectionError as e:
+                        # 如果是连接错误，直接返回 True
+                        return True
+                    except Exception as e:
+                        # 捕获其他异常，进行重试
+                        if attempt < tries - 1:
+                            print(f"证书验证（其他错误），第 {attempt + 2} 次尝试:")
+                            # logging.debug(f"证书验证（其他错误） {args[1]} | {args[2]},第 {attempt + 2} 次尝试:")
+                        if attempt == tries - 1:
+                            print(
+                                f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
+                            )
+                            return False
+                        await asyncio.sleep(delay)
+                return None
 
+            return wrapper
+
+        return decorator
+
+    @retry_async(tries=3)
+    async def is_cert_valid(self, domain: str, ip: str, port: int = 443) -> bool:
         # 设置SSL上下文，用于证书验证
         context = ssl.create_default_context()
         context.verify_mode = ssl.CERT_REQUIRED  # 验证服务器证书
@@ -424,41 +571,26 @@ class LatencyTester:
             return False
         except socket.timeout as e:
             logging.debug(f"{domain} ({ip}): 连接超时 - {e}")
+            raise
             return False
         except ConnectionError as e:
             logging.debug(f"{domain} ({ip}): 连接被强迫关闭，ip有效 - {e}")
             return True
         except Exception as e:
             logging.error(f"{domain} ({ip}): 其他错误 - {e}")
+            raise
             return False
 
     async def get_lowest_latency_hosts(
         self, domains: List[str], file_ips: Set[str], latency_limit: int
     ) -> List[Tuple[str, float]]:
-        all_ips = set()
-
-        if args.log.upper() == "INFO":
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}\n"),
-                transient=True,
-            ) as progress:
-                task = progress.add_task("正在解析域名...", total=len(domains))
-                tasks = [self.resolver.resolve_domain(domain) for domain in domains]
-
-                for ips in await asyncio.gather(*tasks):
-                    all_ips.update(ips)
-                    progress.update(task, advance=1)
-                all_ips.update(file_ips)
-        else:
-            tasks = [self.resolver.resolve_domain(domain) for domain in domains]
-            for ips in await asyncio.gather(*tasks):
-                all_ips.update(ips)
-            all_ips.update(file_ips)
+        all_ips = file_ips
 
         rprint(
             f"[bright_black]- 解析到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
         )
+        if all_ips:
+            rprint(f"[bright_black]- 检测主机延迟...[/bright_black]")
 
         if args.log.upper() == "INFO":
             with Progress(
@@ -478,22 +610,23 @@ class LatencyTester:
             for result in await asyncio.gather(*ping_tasks):
                 results.append(result)
 
-        valid_results = [result for result in results if result[1] < latency_limit]
+        results = [result for result in results if result[1] != float("inf")]
+        valid_results = []
 
-        if not valid_results:
-            logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
-            if results:
-                latency_limit = latency_limit * 2
-                logging.info(f"放宽延迟限制为 {latency_limit}ms 重新挑选...")
-                valid_results = [
-                    result for result in results if result[1] < latency_limit
-                ]
-                if not valid_results:
-                    logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
-                    return []
-            else:
-                return []
+        if results:
+            valid_results = [result for result in results if result[1] < latency_limit]
+            if not valid_results:
+                logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
 
+                valid_results = [min(results,key=lambda x:x[1])]
+                
+                latency_limit = valid_results[0][1]
+                logging.debug("主机IP最低延迟{latency_limit}ms")
+
+        else:
+            rprint("[red]延迟检测没有获得有效IP[/red]")
+            return []
+        
         # 排序结果
         valid_results = sorted(valid_results, key=lambda x: x[1])
 
@@ -508,25 +641,36 @@ class LatencyTester:
         best_hosts = []
         selected_count = 0
 
-        # 检测 IPv4 证书有效性
-        for ip, latency in ipv4_results:
-            if await self.is_cert_valid(domains[0], ip):  # shareGroup会传入多个域名，只需检测第一个就行
-                best_hosts.append((ip, latency))
-                selected_count += 1
-                break
+        if ipv4_results or ipv6_results:
+            rprint(f"[bright_black]- 验证SSL证书...[/bright_black]")
 
-            if ipv6_results or selected_count >= self.hosts_num:
-                break
+        # 检测 IPv4 证书有效性
+        if ipv4_results:
+            logging.debug(ipv4_results)
+            for ip, latency in ipv4_results:
+                if await self.is_cert_valid(
+                    domains[0], ip
+                ):  # shareGroup会传入多个域名，只需检测第一个就行
+                    best_hosts.append((ip, latency))
+                    selected_count += 1
+                    break
+
+                if (
+                    ipv6_results and selected_count >= 1
+                ) or selected_count >= self.hosts_num:
+                    break
 
         # 检测 IPv6 证书有效性
         if ipv6_results:
+            print()
+            logging.debug(ipv6_results)
             for ip, latency in ipv6_results:
                 if await self.is_cert_valid(domains[0], ip):
                     best_hosts.append((ip, latency))
                     break
 
         rprint(
-            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit}ms ：[/bold yellow]"
+            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit:.0f}ms ：[/bold yellow]"
         )
         for ip, time in best_hosts:
             rprint(
@@ -537,10 +681,9 @@ class LatencyTester:
 
 # -------------------- Hosts文件管理 -------------------- #
 class HostsManager:
-    def __init__(self, resolver: DomainResolver):
+    def __init__(self):
         # 自动根据操作系统获取hosts文件路径
         self.hosts_file_path = self._get_hosts_file_path()
-        self.resolver = resolver
 
     @staticmethod
     def _get_hosts_file_path() -> str:
@@ -599,7 +742,9 @@ class HostsManager:
             .replace("+0800", "+08:00")
         )
 
-        rprint("\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
+        rprint(f"\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
+
+        save_hosts_content = []  # 提取新内容文本
 
         # 1. 添加标题
         new_content.append(f"\n# cnNetTool Start in {update_time}")
@@ -624,7 +769,9 @@ class HostsManager:
 
             # 返回格式化后的条目
             formatedEntry = f"{ip}{tabs}{domain}"
+
             new_content.append(formatedEntry)
+            save_hosts_content.append(formatedEntry)
             rprint(f"+ {formatedEntry}")
 
         # 3. 添加项目描述
@@ -635,10 +782,30 @@ class HostsManager:
                 "# cnNetTool End\n",
             ]
         )
+        save_hosts_content.extend(
+            [
+                f"\n# Update time: {update_time}",
+                "# GitHub仓库: https://github.com/sinspired/cnNetTool",
+                "# cnNetTool End\n",
+            ]
+        )
 
         # 4. 写入hosts文件
         with open(self.hosts_file_path, "w") as f:
             f.write("\n".join(new_content))
+
+        # 保存 hosts 文本
+        with open("hosts", "w") as f:
+            f.write("\n".join(save_hosts_content))
+            rprint(
+                f"\n[blue]已生成 hosts 文件,位于: [underline]hosts[/underline][/blue] (共 {len(new_entries)} 个条目)"
+            )
+
+        if not getattr(sys, "frozen", False):
+            # 如果未打包为可执行程序
+            Utils.write_readme_file(
+                save_hosts_content, "README_template.md", f"{update_time}"
+            )
 
 
 # -------------------- 主控制模块 -------------------- #
@@ -666,6 +833,15 @@ class HostsUpdater:
 
             # 2. 根据不同组设置IP
             if group.group_type == GroupType.SEPARATE:
+                # resolved_ips = await asyncio.gather(
+                #     *[self.resolver.resolve_domain(domain) for domain in group.domains]
+                # )
+                # # all_ips.update(resolved_ips)
+                # print("测试")
+                # print(resolved_ips)
+                # if not all_ips:
+                #         logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
+                #         continue
                 for domain in group.domains:
                     rprint(f"\n为域名 {domain} 设置 DNS 映射主机")
                     all_ips = set()
@@ -974,7 +1150,6 @@ class Config:
                 "www.imdb.to",
                 "imdb-webservice.amazon.com",
                 "origin-www.imdb.com",
-                "origin.www.geo.imdb.com",
             ],
             ips={},
         ),
@@ -1001,22 +1176,197 @@ class Config:
                 "translate-pa.googleapis.com",
             ],
             ips={
-                "35.196.72.166",
+                "108.177.127.214",
+                "108.177.97.141",
+                "142.250.101.157",
+                "142.250.110.102",
+                "142.250.141.100",
+                "142.250.145.113",
+                "142.250.145.139",
+                "142.250.157.133",
+                "142.250.157.149",
+                "142.250.176.6",
+                "142.250.181.232",
+                "142.250.183.106",
+                "142.250.187.139",
+                "142.250.189.6",
+                "142.250.196.174",
+                "142.250.199.161",
+                "142.250.199.75",
+                "142.250.204.37",
+                "142.250.204.38",
+                "142.250.204.49",
+                "142.250.27.113",
+                "142.250.4.136",
+                "142.250.66.10",
+                "142.250.76.35",
+                "142.251.1.102",
+                "142.251.1.136",
+                "142.251.163.91",
+                "142.251.165.101",
+                "142.251.165.104",
+                "142.251.165.106",
+                "142.251.165.107",
+                "142.251.165.110",
+                "142.251.165.112",
+                "142.251.165.122",
+                "142.251.165.133",
+                "142.251.165.139",
+                "142.251.165.146",
+                "142.251.165.152",
+                "142.251.165.155",
+                "142.251.165.164",
+                "142.251.165.165",
+                "142.251.165.193",
+                "142.251.165.195",
+                "142.251.165.197",
+                "142.251.165.201",
+                "142.251.165.82",
+                "142.251.165.94",
+                "142.251.178.105",
+                "142.251.178.110",
+                "142.251.178.114",
+                "142.251.178.117",
+                "142.251.178.122",
+                "142.251.178.137",
+                "142.251.178.146",
+                "142.251.178.164",
+                "142.251.178.166",
+                "142.251.178.181",
+                "142.251.178.190",
+                "142.251.178.195",
+                "142.251.178.197",
+                "142.251.178.199",
+                "142.251.178.200",
+                "142.251.178.214",
+                "142.251.178.83",
+                "142.251.178.84",
+                "142.251.178.88",
+                "142.251.178.92",
+                "142.251.178.99",
+                "142.251.2.139",
+                "142.251.221.121",
+                "142.251.221.129",
+                "142.251.221.138",
+                "142.251.221.98",
+                "142.251.40.104",
+                "142.251.41.14",
+                "142.251.41.36",
+                "142.251.42.197",
+                "142.251.8.155",
+                "142.251.8.189",
+                "172.217.16.210",
+                "172.217.164.103",
+                "172.217.168.203",
+                "172.217.168.215",
+                "172.217.168.227",
+                "172.217.169.138",
+                "172.217.17.104",
+                "172.217.171.228",
+                "172.217.175.23",
+                "172.217.19.72",
+                "172.217.192.149",
+                "172.217.192.92",
+                "172.217.197.156",
+                "172.217.197.91",
+                "172.217.204.104",
+                "172.217.204.156",
+                "172.217.214.112",
+                "172.217.218.133",
+                "172.217.222.92",
+                "172.217.31.136",
+                "172.217.31.142",
+                "172.217.31.163",
+                "172.217.31.168",
+                "172.217.31.174",
+                "172.253.117.118",
+                "172.253.122.154",
+                "172.253.62.88",
+                "173.194.199.94",
+                "173.194.216.102",
+                "173.194.220.101",
+                "173.194.220.138",
+                "173.194.221.101",
+                "173.194.222.106",
+                "173.194.222.138",
+                "173.194.66.137",
+                "173.194.67.101",
+                "173.194.68.97",
+                "173.194.73.106",
+                "173.194.73.189",
+                "173.194.76.107",
+                "173.194.77.81",
+                "173.194.79.200",
+                "209.85.201.155",
+                "209.85.201.198",
+                "209.85.201.201",
+                "209.85.203.198",
+                "209.85.232.101",
+                "209.85.232.110",
+                "209.85.232.133",
                 "209.85.232.195",
-                "34.105.140.105",
+                "209.85.233.100",
+                "209.85.233.102",
+                "209.85.233.105",
+                "209.85.233.136",
+                "209.85.233.191",
+                "209.85.233.93",
                 "216.239.32.40",
-                "2404:6800:4008:c15::94",
-                "2a00:1450:4001:829::201a",
+                "216.58.200.10",
+                "216.58.213.8",
+                "34.105.140.105",
+                "34.128.8.104",
+                "34.128.8.40",
+                "34.128.8.55",
+                "34.128.8.64",
+                "34.128.8.70",
+                "34.128.8.71",
+                "34.128.8.85",
+                "34.128.8.97",
+                "35.196.72.166",
+                "35.228.152.85",
+                "35.228.168.221",
+                "35.228.195.190",
+                "35.228.40.236",
+                "64.233.162.102",
+                "64.233.163.97",
+                "64.233.165.132",
+                "64.233.165.97",
+                "64.233.169.100",
+                "64.233.188.155",
+                "64.233.189.133",
+                "64.233.189.148",
+                "66.102.1.167",
+                "66.102.1.88",
+                "74.125.133.155",
+                "74.125.135.17",
+                "74.125.139.97",
+                "74.125.142.116",
+                "74.125.193.152",
+                "74.125.196.195",
+                "74.125.201.91",
+                "74.125.204.101",
+                "74.125.204.113",
+                "74.125.204.114",
+                "74.125.204.132",
+                "74.125.204.141",
+                "74.125.204.147",
+                "74.125.206.117",
+                "74.125.206.137",
+                "74.125.206.144",
+                "74.125.206.146",
+                "74.125.206.154",
+                "74.125.21.191",
+                "74.125.71.145",
+                "74.125.71.152",
+                "74.125.71.199",
                 "2404:6800:4008:c13::5a",
-                # "74.125.204.139",
+                "2404:6800:4008:c15::94",
                 "2607:f8b0:4004:c07::66",
                 "2607:f8b0:4004:c07::71",
                 "2607:f8b0:4004:c07::8a",
                 "2607:f8b0:4004:c07::8b",
-                "172.253.62.100",
-                "172.253.62.101",
-                "172.253.62.102",
-                "172.253.62.103",
+                "2a00:1450:4001:829::201a",
             },
         ),
         DomainGroup(
@@ -1093,10 +1443,10 @@ async def main():
     )
 
     # 2.延迟检测
-    tester = LatencyTester(resolver=resolver, hosts_num=args.hosts_num)
+    tester = LatencyTester(hosts_num=args.hosts_num)
 
     # 3.Hosts文件操作
-    hosts_manager = HostsManager(resolver=resolver)
+    hosts_manager = HostsManager()
 
     # 4.初始化 Hosts更新器 参数
     updater = HostsUpdater(

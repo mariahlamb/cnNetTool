@@ -39,7 +39,7 @@ jobs:
       
       - name: Run hosts update script
         run: |
-          sudo python setHosts.py
+          sudo python setHosts_Classic.py
       
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
