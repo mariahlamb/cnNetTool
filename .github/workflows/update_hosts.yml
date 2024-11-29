@@ -2,10 +2,10 @@ name: Update hosts
 
 on:
   push:
-    # paths:
-    #   - 'setHosts.py'
-    #   - 'setHosts_Classic.py'
-    #   - 'requirements.txt'
+    paths:
+      - 'setHosts.py'
+      - 'setHosts_Classic.py'
+      - 'requirements.txt'
   schedule:
     - cron: '0 */4 * * *'
   workflow_dispatch:
