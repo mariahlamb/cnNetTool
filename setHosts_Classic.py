@@ -70,6 +70,12 @@ def parse_args():
         type=int,
         help="设置允许的最大延迟（毫秒）",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="打印运行信息",
+    )
     return parser.parse_args()
 
 
@@ -582,7 +588,11 @@ class LatencyTester:
             return False
 
     async def get_lowest_latency_hosts(
-        self, domains: List[str], file_ips: Set[str], latency_limit: int
+        self,
+        group_name: str,
+        domains: List[str],
+        file_ips: Set[str],
+        latency_limit: int,
     ) -> List[Tuple[str, float]]:
         all_ips = file_ips
 
@@ -598,12 +608,17 @@ class LatencyTester:
                 TextColumn("[progress.description]{task.description}"),
                 transient=True,
             ) as progress:
-                task = progress.add_task("正在 ping 所有IP地址...", total=len(all_ips))
+                task = progress.add_task(
+                    f"正在 ping {domains[0] if len(domains) == 1 else f'[{group_name}] {len(domains)} 域名'} 所有IP地址...",
+                    total=len(all_ips),
+                )
                 ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
                 results = []
                 for result in await asyncio.gather(*ping_tasks):
                     results.append(result)
                     progress.update(task, advance=1)
+
+                progress.stop_task
         else:
             ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
             results = []
@@ -617,16 +632,14 @@ class LatencyTester:
             valid_results = [result for result in results if result[1] < latency_limit]
             if not valid_results:
                 logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
-
-                valid_results = [min(results,key=lambda x:x[1])]
-                
+                valid_results = [min(results, key=lambda x: x[1])]
                 latency_limit = valid_results[0][1]
                 logging.debug("主机IP最低延迟{latency_limit}ms")
 
         else:
             rprint("[red]延迟检测没有获得有效IP[/red]")
             return []
-        
+
         # 排序结果
         valid_results = sorted(valid_results, key=lambda x: x[1])
 
@@ -676,6 +689,7 @@ class LatencyTester:
             rprint(
                 f"  [green]{ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
             )
+
         return best_hosts
 
 
@@ -748,6 +762,7 @@ class HostsManager:
 
         # 1. 添加标题
         new_content.append(f"\n# cnNetTool Start in {update_time}")
+        save_hosts_content.append(f"\n# cnNetTool Start in {update_time}")
 
         # 2. 添加主机条目
         for entry in new_entries:
@@ -833,15 +848,6 @@ class HostsUpdater:
 
             # 2. 根据不同组设置IP
             if group.group_type == GroupType.SEPARATE:
-                # resolved_ips = await asyncio.gather(
-                #     *[self.resolver.resolve_domain(domain) for domain in group.domains]
-                # )
-                # # all_ips.update(resolved_ips)
-                # print("测试")
-                # print(resolved_ips)
-                # if not all_ips:
-                #         logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
-                #         continue
                 for domain in group.domains:
                     rprint(f"\n为域名 {domain} 设置 DNS 映射主机")
                     all_ips = set()
@@ -852,6 +858,7 @@ class HostsUpdater:
                         continue
 
                     fastest_ips = await self.tester.get_lowest_latency_hosts(
+                        group.name,
                         [domain],
                         all_ips,
                         self.resolver.max_latency,
@@ -875,6 +882,7 @@ class HostsUpdater:
                 # rprint(f"  找到 {len(all_ips)} 个 DNS 主机记录")
 
                 fastest_ips = await self.tester.get_lowest_latency_hosts(
+                    group.name,
                     # [group.domains[0]],  # 只需传入一个域名，因为只是用来测试IP
                     group.domains,  # 传入所有域名以获得更准确的延迟测试结果
                     all_ips,

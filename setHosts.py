@@ -355,7 +355,7 @@ class DomainResolver:
 
         return decorator
 
-    @retry_async(tries=4)
+    @retry_async(tries=3)
     async def _resolve_via_ipaddress(self, domain: str) -> Set[str]:
         ips = set()
         url = f"https://sites.ipaddress.com/{domain}"
@@ -450,7 +450,7 @@ class LatencyTester:
                 except Exception as e:
                     logging.debug(f"连接测试失败 {ip} (sockaddr: {sockaddr}): {e}")
                     continue
-            # rprint(f"[blue]{ip}[/blue]")
+
             return float("inf")
         except Exception as e:
             logging.error(f"获取地址信息失败 {ip}: {e}")
@@ -467,7 +467,6 @@ class LatencyTester:
             if response_times:
                 average_response_time = sum(response_times) / len(response_times)
             else:
-                # rprint(f"[red]no response_times:{ip}[/red]")
                 average_response_time = float("inf")
 
             if average_response_time == 0:
@@ -483,55 +482,8 @@ class LatencyTester:
             logging.debug(f"ping {ip} 时出错: {e}")
             return ip, float("inf")
 
-    # 异步重试装饰器
-    def retry_async(tries=3, delay=0):
-        def decorator(func):
-            @wraps(func)
-            async def wrapper(*args, **kwargs):
-                for attempt in range(tries):
-                    try:
-                        return await func(*args, **kwargs)
-                    except ssl.SSLError as e:
-                        # 如果是 SSL 错误，不重试，直接返回 False
-                        # print(f"SSL 错误（第 {attempt + 1} 次尝试）: {e}")
-                        return False
-                    except socket.timeout as e:
-                        # 对超时错误进行重试
-                        if attempt < tries - 1:
-                            # print(f"证书验证（超时错误）{args[1]} | {args[2]}，第 {attempt + 2} 次尝试:")
-                            logging.debug(
-                                f"证书验证（超时错误） {args[1]} | {args[2]},第 {attempt + 2} 次尝试:"
-                            )
-                        if attempt == tries - 1:
-                            logging.debug(
-                                f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
-                            )
-                            return False
-                        await asyncio.sleep(delay)
-                    except ConnectionError as e:
-                        # 如果是连接错误，直接返回 True
-                        return True
-                    except Exception as e:
-                        # 捕获其他异常，进行重试
-                        if attempt < tries - 1:
-                            # print(f"证书验证（其他错误）{args[1]} | {args[2]}，第 {attempt + 2} 次尝试:")
-                            logging.debug(
-                                f"证书验证（其他错误） {args[1]} | {args[2]},第 {attempt + 2} 次尝试:"
-                            )
-                        if attempt == tries - 1:
-                            logging.debug(
-                                f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
-                            )
-                            return False
-                        await asyncio.sleep(delay)
-                return None
-
-            return wrapper
-
-        return decorator
-
-    @retry_async(tries=3)
     async def is_cert_valid(self, domain: str, ip: str, port: int = 443) -> bool:
+
         # 设置SSL上下文，用于证书验证
         context = ssl.create_default_context()
         context.verify_mode = ssl.CERT_REQUIRED  # 验证服务器证书
@@ -561,14 +513,12 @@ class LatencyTester:
             return False
         except socket.timeout as e:
             logging.debug(f"{domain} ({ip}): 连接超时 - {e}")
-            raise
             return False
         except ConnectionError as e:
             logging.debug(f"{domain} ({ip}): 连接被强迫关闭，ip有效 - {e}")
-            return False
+            return True
         except Exception as e:
-            logging.debug(f"{domain} ({ip}): 其他错误 - {e}")
-            raise
+            logging.error(f"{domain} ({ip}): 其他错误 - {e}")
             return False
 
     async def get_lowest_latency_hosts(
@@ -578,7 +528,6 @@ class LatencyTester:
         file_ips: Set[str],
         latency_limit: int,
         latency_task_id: TaskID,
-        visible_status: bool,
     ) -> List[Tuple[str, float]]:
         all_ips = file_ips
         total_ips = len(all_ips)
@@ -608,12 +557,18 @@ class LatencyTester:
             if self.progress and latency_task_id:
                 self.progress.update(
                     latency_task_id,
-                    advance=0.7,
-                    visible=visible_status,
+                    advance=1,
+                    visible=True,
                     total=total_ips,
                 )
 
-        # rprint(f"\n{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'}\n {results}")
+        if self.progress and latency_task_id:
+            # 确保进度完结
+            self.progress.update(
+                latency_task_id,
+                completed=total_ips,
+                visible=True,
+            )
 
         results = [result for result in results if result[1] != float("inf")]
         valid_results = []
@@ -625,13 +580,16 @@ class LatencyTester:
                     f"{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'} 未发现延迟小于 {latency_limit}ms 的IP。"
                 )
 
-                valid_results = [min(results,key=lambda x:x[1])]
-
+                valid_results = [min(results, key=lambda x: x[1])]
                 latency_limit = valid_results[0][1]
-                logging.debug(f"{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'} 的主机IP最低延迟{latency_limit}ms")
+                logging.debug(
+                    f"{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'} 的主机IP最低延迟{latency_limit}ms"
+                )
 
         else:
-            rprint(f"[red]{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'} 延迟检测没有获得有效IP[/red]")
+            rprint(
+                f"[red]{group_name} {domains[0] if len(domains) == 1 else f'{len(domains)} 域名'} 延迟检测没有获得有效IP[/red]"
+            )
             return []
 
         # 排序结果
@@ -643,39 +601,22 @@ class LatencyTester:
         best_hosts = []
         selected_count = 0
 
-        if ipv4_results or ipv6_results:
-            logging.debug(f"[bright_black]- 验证SSL证书...[/bright_black]")
-
         # 检测 IPv4 证书有效性
-        if ipv4_results:
-            logging.debug(ipv4_results)
-            for ip, latency in ipv4_results:
-                if await self.is_cert_valid(
-                    domains[0], ip
-                ):  # shareGroup会传入多个域名，只需检测第一个就行
-                    best_hosts.append((ip, latency))
-                    selected_count += 1
-                    break
-
-                if (
-                    ipv6_results and selected_count >= 1
-                ) or selected_count >= self.hosts_num:
+        for ip, latency in ipv4_results:
+            if await self.is_cert_valid(
+                domains[0], ip
+            ):  # shareGroup会传入多个域名，只需检测第一个就行
+                best_hosts.append((ip, latency))
+                selected_count += 1
+                if ipv6_results or selected_count >= self.hosts_num:
                     break
 
         # 检测 IPv6 证书有效性
         if ipv6_results:
-            logging.debug(ipv6_results)
             for ip, latency in ipv6_results:
                 if await self.is_cert_valid(domains[0], ip):
                     best_hosts.append((ip, latency))
                     break
-
-        # 检测证书占比30%
-        self.progress.update(
-            latency_task_id,
-            visible=visible_status,
-            completed=total_ips,
-        )
 
         if args.verbose:
             rprint(
@@ -754,7 +695,7 @@ class HostsManager:
             .replace("+0800", "+08:00")
         )
 
-        rprint("\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
+        rprint(f"\n[bold yellow]正在更新 hosts 文件...[/bold yellow]")
 
         save_hosts_content = []  # 提取新内容文本
 
@@ -782,6 +723,7 @@ class HostsManager:
 
             # 返回格式化后的条目
             formatedEntry = f"{ip}{tabs}{domain}"
+
             new_content.append(formatedEntry)
             save_hosts_content.append(formatedEntry)
             rprint(f"+ {formatedEntry}")
@@ -845,7 +787,7 @@ class HostsUpdater:
         )
 
     async def _resolve_domains_batch(
-        self, domains: List[str], resolve_task_id: TaskID, Group_task_id: TaskID
+        self, domains: List[str], resolve_task_id: TaskID
     ) -> Dict[str, Set[str]]:
         """批量解析域名，带进度更新"""
         results = {}
@@ -856,7 +798,6 @@ class HostsUpdater:
             self.progress.update(
                 resolve_task_id,
                 total=total_domains,
-                visible=False,
             )
 
         async with self.semaphore:
@@ -872,19 +813,16 @@ class HostsUpdater:
                 self.progress.update(
                     resolve_task_id,
                     advance=1,
-                    visible=False,
-                )
-                self.progress.update(
-                    Group_task_id,
-                    advance=0.4,
                     visible=True,
                 )
 
-        self.progress.update(
-            resolve_task_id,
-            completed=total_domains,
-            visible=False,
-        )
+        if self.progress and resolve_task_id:
+            # 确保进度完结
+            self.progress.update(
+                resolve_task_id,
+                completed=total_domains,
+                visible=True,
+            )
         return results
 
     async def _process_domain_group(self, group: DomainGroup, index: int) -> List[str]:
@@ -908,120 +846,78 @@ class HostsUpdater:
 
         # 为 _resolve_domains_batch 设置 [域名解析] 子任务进度显示
         resolve_task_id = self.progress.add_task(
-            f"- [域名解析]",
+            f"- [域名解析] {group.name}",
             total=0,  # 初始设为0，后续会更新
             visible=False,  # 初始隐藏，等需要时显示
         )
 
         # 为 LatencyTester 设置子任务进度显示
         latency_task_id = self.progress.add_task(
-            f"- [测试延迟]",
+            f"- [测试延迟] {group.name}",
             total=0,  # 初始设为0，后续会更新
             visible=False,  # 初始隐藏，等需要时显示
         )
-        # 为 LatencyTester 设置子任务进度显示
-        seperateGroup_latency_task_id = self.progress.add_task(
-            f"- [测试延迟]",
-            total=0,  # 初始设为0，后续会更新
-            visible=False,  # 初始隐藏，等需要时显示
-        )
+
         self.tester.set_progress(self.progress, latency_task_id)
 
         if group.group_type == GroupType.SEPARATE:
-            # 主进度更新
-            self.progress.update(
-                seperateGroup_task_id,
-                total=len(group.domains),
-            )
-            self.progress.update(
-                seperateGroup_latency_task_id,
-                total=len(group.domains),
-                visible=False,
-            )
-            # for domain in group.domains:
-            resolved_ips = await self._resolve_domains_batch(
-                group.domains, resolve_task_id, seperateGroup_task_id
-            )
-
-            # 隐藏域名解析进度条
-            self.progress.update(
-                resolve_task_id, visible=False, completed=len(group.domains)
-            )
-
-            # 并发运行get_lowest_latency_hosts
-            tasks = []  # 用于收集所有延迟测试任务
             for domain in group.domains:
+                resolved_ips = await self._resolve_domains_batch(
+                    [domain], resolve_task_id
+                )
                 domain_ips = resolved_ips.get(domain, set())
+
+                # 隐藏域名解析进度条
+                self.progress.update(resolve_task_id, visible=False)
+
                 if not domain_ips:
                     logging.warning(f"{domain} 未解析到任何可用IP。跳过该域名。")
                     continue
 
-                # 将延迟测试任务加入任务列表
-                tasks.append(
-                    self.tester.get_lowest_latency_hosts(
-                        group.name,
-                        [domain],
-                        domain_ips,
-                        self.resolver.max_latency,
-                        latency_task_id,
-                        False,
-                    )
+                fastest_ips = await self.tester.get_lowest_latency_hosts(
+                    group.name,
+                    [domain],
+                    domain_ips,
+                    self.resolver.max_latency,
+                    latency_task_id,
                 )
-
-            results = []
-            # 使用 asyncio.as_completed 确保每个任务完成时立即处理
-            for coro in asyncio.as_completed(tasks):
-                result = await coro
-                results.append(result)
-
-                # 每完成一个任务立即更新进度
-                self.progress.update(
-                    seperateGroup_task_id,
-                    advance=0.6,
-                    visible=True,
-                )
-                self.progress.update(
-                    seperateGroup_latency_task_id,
-                    advance=1,
-                    visible=False,
-                )
-
-            # 隐藏延迟测试进度条
-            self.progress.update(
-                seperateGroup_latency_task_id,
-                visible=False,
-                completed=len(group.domains),
-            )
-            self.progress.update(seperateGroup_task_id, visible=False)
-
-            # 收集并处理测试结果
-            for domain, fastest_ips in zip(group.domains, results):
                 if fastest_ips:
                     entries.extend(f"{ip}\t{domain}" for ip, latency in fastest_ips)
                 else:
-                    logging.debug(f"{domain} 未发现满足延迟检测要求的IP。")
+                    logging.warning(f"{domain} 未发现满足延迟检测要求的IP。")
+                # 隐藏延迟测试进度条
+                self.progress.update(latency_task_id, visible=False)
+                # 主进度更新
+                self.progress.update(
+                    seperateGroup_task_id,
+                    advance=1,
+                    visible=True,
+                )
 
-            # 主进度更新
+                self.progress.update(
+                    seperateGroup_task_id,
+                    visible=False,
+                )
+
+            # 标记该组处理完成
             self.progress.update(
                 seperateGroup_task_id,
+                description=f"处理组 {group.name}",
                 completed=len(group.domains),
                 visible=True,
             )
 
         else:
-            self.progress.update(
-                shareGroup_task_id,
-                total=len(group.domains),
-                visible=False,
-            )
             # 共用主机的域名组
             resolved_ips_dict = await self._resolve_domains_batch(
-                group.domains, resolve_task_id, shareGroup_task_id
+                group.domains, resolve_task_id
             )
-
             # 隐藏域名解析进度条
+            self.progress.update(resolve_task_id, visible=False)
             self.progress.update(
-                resolve_task_id, visible=False, completed=len(group.domains)
+                shareGroup_task_id,
+                visible=True,
+                advance=40,
             )
 
             for ips in resolved_ips_dict.values():
@@ -1039,13 +935,15 @@ class HostsUpdater:
                 all_ips,
                 self.resolver.max_latency,
                 latency_task_id,
-                False,
+            )
+            self.progress.update(
+                shareGroup_task_id,
+                visible=True,
+                advance=40,
             )
 
             # 隐藏延迟测试进度条
-            self.progress.update(
-                latency_task_id, visible=False, completed=len(group.domains)
-            )
+            self.progress.update(latency_task_id, visible=False)
 
             if fastest_ips:
                 for domain in group.domains:
@@ -1057,7 +955,7 @@ class HostsUpdater:
             self.progress.update(
                 shareGroup_task_id,
                 visible=True,
-                completed=len(group.domains),
+                advance=20,
             )
 
         return entries

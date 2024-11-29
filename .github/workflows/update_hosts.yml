@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'setHosts.py'
+      - 'setHosts_Classic.py'
       - 'requirements.txt'
   schedule:
     - cron: '0 */4 * * *'
@@ -21,6 +22,9 @@ jobs:
       cancel-in-progress: true
 
     steps:
+      - name: Wait for synchronization
+        run: sleep 10
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -39,13 +43,13 @@ jobs:
       
       - name: Run hosts update script
         run: |
-          sudo python setHosts_Classic.py
+          sudo python setHosts.py
       
+      # 提交并推送更新（仅在文件变更时）
       - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: EndBug/add-and-commit@v9
         with:
-          commit_message: "chore: update hosts"
-          file_pattern: '.'
-          commit_user_name: action_bot
-          commit_user_email: sinspired@gmail.com
-          push_options: '--force'
+          message: "Update servers list"
+          add: |
+            hosts
+            README.md
