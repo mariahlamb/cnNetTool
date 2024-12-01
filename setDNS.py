@@ -34,7 +34,7 @@ DOMAINS_TO_TEST = [
     "api.github.com",
     "assets-cdn.github.com",
     "raw.githubusercontent.com",
-    "4kvm.net",
+    # "4kvm.net",
 ]
 
 # DNS服务器列表
@@ -55,6 +55,10 @@ DNS_SERVERS = {
         "OpenDNS": {
             "ipv4": ["208.67.222.222"],
             "ipv6": ["2620:0:ccc::2"],
+        },
+        "CloudFlareDNS": {
+            "ipv4": ["1.1.1.1"],
+            "ipv6": ["2606:4700:4700::1111"],
         },
     },
     "中国大陆": {
@@ -122,7 +126,7 @@ def evaluate_dns_server(server: str, ip_version: str) -> tuple[float, float, dic
     return success_rate, avg_response_time, resolutions
 
 
-def find_available_dns() -> tuple[dict, dict]:
+def find_available_dns(args) -> tuple[dict, dict]:
     """
     查找最佳的DNS服务器并获取域名解析结果
 
@@ -134,6 +138,9 @@ def find_available_dns() -> tuple[dict, dict]:
     with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
         future_to_server = {}
         for region, providers in DNS_SERVERS.items():
+            if args.only_global and region != "全球":
+                continue
+
             for provider, servers in providers.items():
                 for ip_version in ["ipv4", "ipv6"]:
                     for server in servers[ip_version]:
@@ -163,7 +170,8 @@ def find_available_dns() -> tuple[dict, dict]:
                     domain_resolutions[domain][server] = ips
 
                 logger.debug(
-                    f"{ip_version.upper()} DNS {server} ({region} - {provider}) 成功率 {success_rate:.2%}, 平均延迟 {avg_response_time:.2f}ms"
+                    f"{ip_version.upper()} DNS {server} ({
+                        region} - {provider}) 成功率 {success_rate:.2%}, 平均延迟 {avg_response_time:.2f}ms"
                 )
             except Exception as exc:
                 logger.error(f"{server} 测试出错: {str(exc)}")
@@ -260,7 +268,8 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                     continue
                 if ipv4_dns_list:
                     logger.debug(
-                        f"设置IPv4 DNS for {interface}: {', '.join(ipv4_dns_list)}"
+                        f"设置IPv4 DNS for {interface}: {
+                            ', '.join(ipv4_dns_list)}"
                     )
                     try:
                         subprocess.run(
@@ -294,7 +303,8 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                         logger.error(f"设置IPv4 DNS for {interface}失败: {e}")
                 if ipv6_dns_list:
                     logger.debug(
-                        f"设置IPv6 DNS for {interface}: {', '.join(ipv6_dns_list)}"
+                        f"设置IPv6 DNS for {interface}: {
+                            ', '.join(ipv6_dns_list)}"
                     )
                     try:
                         subprocess.run(
@@ -378,20 +388,21 @@ def get_recommended_dns(available_dns: dict, algorithm: str) -> dict[str, list]:
     """
     recommended = {"ipv4": [], "ipv6": []}
     for ip_version in ["ipv4", "ipv6"]:
-        if algorithm == "region":
-            cn = get_best_dns_by_region(available_dns[ip_version], "中国大陆")
-            global_ = get_best_dns_by_region(available_dns[ip_version], "全球")
-            recommended[ip_version] = [
-                cn[0] if cn else None,
-                global_[0] if global_ else None,
-            ]
-        elif algorithm == "overall":
+
+        if args.only_global or algorithm == "overall":
             best = get_best_dns_overall(available_dns[ip_version])
             # second_best = get_best_dns_overall(
             #     [dns for dns in available_dns[ip_version] if dns != best]
             # )
             # recommended[ip_version] = [best[0], second_best[0]]
             recommended[ip_version] = [best[0]]
+        else:
+            cn = get_best_dns_by_region(available_dns[ip_version], "中国大陆")
+            global_ = get_best_dns_by_region(available_dns[ip_version], "全球")
+            recommended[ip_version] = [
+                cn[0] if cn else None,
+                global_[0] if global_ else None,
+            ]
     return recommended
 
 
@@ -410,7 +421,8 @@ def print_recommended_dns_table(dns_list: list, ip_version: str, available_dns: 
         if dns:
             # 在best_dns列表中查找正确的服务器信息
             server_info = next(
-                (info for server, info in available_dns[ip_version] if server == dns),
+                (info for server,
+                 info in available_dns[ip_version] if server == dns),
                 None,
             )
             if server_info:
@@ -507,7 +519,7 @@ def main():
         logger.addHandler(console_handler)
 
     logger.info("开始测试DNS服务器...")
-    available_dns, domain_resolutions = find_available_dns()
+    available_dns, domain_resolutions = find_available_dns(args)
 
     if available_dns["ipv4"] or available_dns["ipv6"]:
         if args.show_resolutions:
@@ -520,7 +532,8 @@ def main():
             print_domain_resolutions(domain_resolutions, dns_performance)
 
         # 防止 best_dns_num 数值超过数组长度
-        num_servers = min(len(available_dns["ipv4"]), len(available_dns["ipv6"]))
+        num_servers = min(
+            len(available_dns["ipv4"]), len(available_dns["ipv6"]))
         if args.best_dns_num > num_servers:
             args.best_dns_num = num_servers
 
@@ -615,9 +628,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algorithm",
         "--mode",
-        choices=["region", "overall"],
-        default="region",
+        choices=["allregions", "overall"],
+        default="allregions",
         help="推荐最佳DNS的算法 (按区域或整体)",
+    )
+    parser.add_argument(
+        "--only-global",  # argparse 会自动将第一个参数名转换为属性名。
+        "--global",
+        dest="only_global",  # 这里指定属性名
+        action="store_true",
+        help="仅使用国际DNS服务器",
     )
     parser.add_argument(
         "--show-resolutions",
