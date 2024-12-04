@@ -24,7 +24,7 @@ import wcwidth
 # -------------------- 常量设置 -------------------- #
 RESOLVER_TIMEOUT = 1  # DNS 解析超时时间 秒
 HOSTS_NUM = 1  # 每个域名限定Hosts主机 ipv4 数量
-MAX_LATENCY = 300  # 允许的最大延迟
+MAX_LATENCY = 500  # 允许的最大延迟
 PING_TIMEOUT = 1  # ping 超时时间
 NUM_PINGS = 4  # ping次数
 
@@ -105,7 +105,8 @@ class Utils:
             backup_path = f"{hosts_file_path}.bak"
             shutil.copy(hosts_file_path, backup_path)
             rprint(
-                f"\n[blue]已备份 [underline]{hosts_file_path}[/underline] 到 [underline]{backup_path}[/underline][/blue]"
+                f"\n[blue]已备份 [underline]{
+                    hosts_file_path}[/underline] 到 [underline]{backup_path}[/underline][/blue]"
             )
 
     @staticmethod
@@ -137,7 +138,8 @@ class Utils:
 
             # 使用替换方法而不是format
             readme_content = template_content.replace("{hosts_str}", hosts_str)
-            readme_content = readme_content.replace("{update_time}", update_time)
+            readme_content = readme_content.replace(
+                "{update_time}", update_time)
 
             # 写入新文件
             with open("README.md", "w", encoding="utf-8") as output_fb:
@@ -195,10 +197,12 @@ class Utils:
             main_text = plain_text.strip()
             completion_mark = "[完成]"
             # 关键修改：直接从目标宽度减去主文本长度，不再额外预留[完成]的空间
-            fill_count = target_width - len(main_text) - len(completion_mark) - 6
+            fill_count = target_width - \
+                len(main_text) - len(completion_mark) - 6
             fill_count = max(0, fill_count)
 
-            filled_text = f"{main_text}{fill_char * fill_count}{completion_mark}"
+            filled_text = f"{main_text}{
+                fill_char * fill_count}{completion_mark}"
             return f"[blue on green]{filled_text}[/blue on green]"
         else:
             # 普通文本的处理保持不变
@@ -240,7 +244,8 @@ class Utils:
         padding_needed = max(0, padding_needed)
 
         # 构建最终的格式化字符串
-        formatted_str = f"\n[bold white on bright_black]正在处理第 [green]{i}[/green] 组域名： {group_name}{' ' * padding_needed}[/bold white on bright_black]"
+        formatted_str = f"\n[bold white on bright_black]正在处理第 [green]{
+            i}[/green] 组域名： {group_name}{' ' * padding_needed}[/bold white on bright_black]"
 
         return formatted_str
 
@@ -315,7 +320,7 @@ class DomainResolver:
         ips = set()
 
         # 1. 首先通过常规DNS服务器解析
-        dns_ips = await self._resolve_via_dns(domain)
+        dns_ips = await self._resolve_via_dns(domain, "all")
         ips.update(dns_ips)
 
         # 2. 然后通过DNS_records解析
@@ -326,40 +331,86 @@ class DomainResolver:
             ipv6_ips = domain_hosts.get("ipv6", [])
 
             ips.update(ipv4_ips + ipv6_ips)
+            logging.debug(f"成功通过缓存文件解析 {domain}, 发现 {len(
+                ipv4_ips)+len(ipv6_ips)} 个 DNS 主机:\n{ipv4_ips}\n{ipv6_ips if ipv6_ips else ''}\n")
         else:
             ipaddress_ips = await self._resolve_via_ipaddress(domain)
             ips.update(ipaddress_ips)
 
         if ips:
-            logging.debug(f"成功解析 {domain}, 发现 {len(ips)} 个 DNS 主机")
+            logging.debug(f"成功通过 DNS服务器 和 DNS记录 解析 {domain}, 发现 {
+                          len(ips)} 个 唯一 DNS 主机\n{ips}\n")
         else:
             logging.debug(f"警告: 无法解析 {domain}")
 
         return ips
 
-    async def _resolve_via_dns(self, domain: str) -> Set[str]:
-        ips = set()
-        for dns_server in self.dns_servers:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.nameservers = [dns_server]
-                resolver.lifetime = RESOLVER_TIMEOUT
+    async def _resolve_via_dns(self, domain: str, dns_type: str = "all") -> Set[str]:
+        """
+        通过 DNS 解析域名
 
+        :param domain: 待解析的域名
+        :param dns_type: 解析使用的 DNS 类型。可选值：
+            - "all": 同时使用国内和国际 DNS
+            - "china": 仅使用国内 DNS
+            - "international": 仅使用国际 DNS
+        :return: 解析得到的 IP 集合
+        """
+        async def resolve_with_dns_server(dns_server_info: dict) -> Set[str]:
+            """单个DNS服务器的解析协程"""
+            dns_server = dns_server_info['ip']
+            dns_provider = dns_server_info['provider']
+            ips = set()
+            resolver = dns.resolver.Resolver(configure=False)
+            resolver.nameservers = [dns_server]
+            resolver.timeout = RESOLVER_TIMEOUT
+            resolver.lifetime = RESOLVER_TIMEOUT
+
+            try:
+                # 使用 to_thread 在线程池中执行同步的 DNS 查询
                 for qtype in ["A", "AAAA"]:
                     try:
                         answers = await asyncio.to_thread(
                             resolver.resolve, domain, qtype
                         )
                         ips.update(answer.address for answer in answers)
-                    except dns.resolver.NoAnswer:
+                    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
                         pass
+                    except Exception as e:
+                        logging.debug(f"DNS 查询异常 ({qtype}, {dns_server}): {e}")
 
                 if ips:
-                    logging.debug(f"成功使用 {dns_server} 解析 {domain}")
-                    logging.debug(f"DNS_resolver：\n {ips}")
-                    return ips
+                    logging.debug(f"成功使用 {dns_provider} : {dns_server} 解析 {
+                                  domain}，共 {len(ips)} 个主机: {ips}")
+
+                return ips
+
             except Exception as e:
                 logging.debug(f"使用 {dns_server} 解析 {domain} 失败: {e}")
+                return set()
+
+        # 根据 dns_type 选择要使用的 DNS 服务器
+        if dns_type == "all":
+            dns_servers = self.dns_servers['china_mainland'] + \
+                self.dns_servers['international']
+        elif dns_type == "china":
+            dns_servers = self.dns_servers['china_mainland']
+        elif dns_type == "international":
+            dns_servers = self.dns_servers['international']
+        else:
+            raise ValueError(f"无效的 DNS 类型：{dns_type}")
+
+        # 并发解析所有选定的 DNS 服务器，并保留非空结果
+        tasks = [resolve_with_dns_server(dns_server)
+                 for dns_server in dns_servers]
+        results = await asyncio.gather(*tasks)
+
+        # 合并所有非空的解析结果
+        ips = set(ip for result in results for ip in result if ip)
+
+        if ips:
+            logging.debug(f"成功使用多个 DNS 服务器解析 {domain}，共 {
+                          len(ips)} 个主机:\n{ips}\n")
 
         return ips
 
@@ -401,7 +452,8 @@ class DomainResolver:
                 async with session.get(url, headers=headers, timeout=5) as response:
                     if response.status != 200:
                         logging.info(
-                            f"DNS_records(ipaddress.com) 查询请求失败: {response.status}"
+                            f"DNS_records(ipaddress.com) 查询请求失败: {
+                                response.status}"
                         )
                         return ips
 
@@ -429,7 +481,8 @@ class DomainResolver:
                         # 保存到文件
                         self.save_hosts_cache()
                         logging.debug(
-                            f"通过 ipaddress.com 成功解析 {domain} 并更新 DNS_records 缓存"
+                            f"通过 ipaddress.com 成功解析 {
+                                domain} 并更新 DNS_records 缓存"
                         )
                         logging.debug(f"DNS_records：\n {ips}")
                     else:
@@ -489,7 +542,8 @@ class LatencyTester:
             )
             response_times = [t for t in response_times if t != float("inf")]
             if response_times:
-                average_response_time = sum(response_times) / len(response_times)
+                average_response_time = sum(
+                    response_times) / len(response_times)
             else:
                 average_response_time = float("inf")
 
@@ -518,12 +572,13 @@ class LatencyTester:
                     except socket.timeout as e:
                         # 对超时错误进行重试
                         if attempt < tries - 1:
-                            print(f"证书验证（超时错误），第 {attempt + 2} 次尝试:")
-                            # logging.debug(f"证书验证（超时错误） {args[1]} | {args[2]},第 {attempt + 2} 次尝试:")
+                            # print(f"证书验证（超时错误），第 {attempt + 2} 次尝试:")
+                            logging.debug(f"证书验证（超时错误） {args[1]} | {
+                                          args[2]},第 {attempt + 2} 次尝试:")
                         if attempt == tries - 1:
-                            print(
-                                f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
-                            )
+                            # print(
+                            #     f"证书验证 {args[1]} | {args[2]}, {tries} 次尝试后终止！"
+                            # )
                             return False
                         await asyncio.sleep(delay)
                     except ConnectionError as e:
@@ -546,7 +601,7 @@ class LatencyTester:
 
         return decorator
 
-    @retry_async(tries=3)
+    @retry_async(tries=1)
     async def is_cert_valid(self, domain: str, ip: str, port: int = 443) -> bool:
         # 设置SSL上下文，用于证书验证
         context = ssl.create_default_context()
@@ -555,7 +610,7 @@ class LatencyTester:
 
         try:
             # 1. 尝试与IP地址建立SSL连接
-            with socket.create_connection((ip, port), timeout=5) as sock:
+            with socket.create_connection((ip, port), timeout=1) as sock:
                 with context.wrap_socket(sock, server_hostname=domain) as ssock:
                     cert = ssock.getpeercert()
                     # 检查证书的有效期
@@ -595,9 +650,10 @@ class LatencyTester:
         latency_limit: int,
     ) -> List[Tuple[str, float]]:
         all_ips = file_ips
-
+        start_time = datetime.now()  # 记录程序开始运行时间
         rprint(
-            f"[bright_black]- 解析到 [bold bright_green]{len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
+            f"[bright_black]- 获取到 [bold bright_green]{
+                len(all_ips)}[/bold bright_green] 个唯一IP地址[/bright_black]"
         )
         if all_ips:
             rprint(f"[bright_black]- 检测主机延迟...[/bright_black]")
@@ -609,13 +665,17 @@ class LatencyTester:
                 transient=True,
             ) as progress:
                 task = progress.add_task(
-                    f"正在 ping {domains[0] if len(domains) == 1 else f'[{group_name}] {len(domains)} 域名'} 所有IP地址...",
+                    f"正在 ping {domains[0] if len(domains) == 1 else f'[{group_name}] {
+                        len(domains)} 域名'} 所有IP地址...",
                     total=len(all_ips),
                 )
-                ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
+                ping_tasks = [self.get_host_average_latency(
+                    ip) for ip in all_ips]
                 results = []
                 for result in await asyncio.gather(*ping_tasks):
-                    results.append(result)
+                    # rprint(f"[green]{result[0]} {result[1]:.0f}ms ,进行ssl证书验证...[/green]")
+                    if result[1] != float("inf"):
+                        results.append(result)
                     progress.update(task, advance=1)
 
                 progress.stop_task
@@ -623,18 +683,19 @@ class LatencyTester:
             ping_tasks = [self.get_host_average_latency(ip) for ip in all_ips]
             results = []
             for result in await asyncio.gather(*ping_tasks):
-                results.append(result)
+                if result[1] != float("inf"):
+                    results.append(result)
 
-        results = [result for result in results if result[1] != float("inf")]
         valid_results = []
 
         if results:
-            valid_results = [result for result in results if result[1] < latency_limit]
+            valid_results = [
+                result for result in results if result[1] < latency_limit]
             if not valid_results:
                 logging.warning(f"未发现延迟小于 {latency_limit}ms 的IP。")
                 valid_results = [min(results, key=lambda x: x[1])]
                 latency_limit = valid_results[0][1]
-                logging.debug("主机IP最低延迟{latency_limit}ms")
+                logging.debug(f"主机IP最低延迟 {latency_limit:.0f}ms")
 
         else:
             rprint("[red]延迟检测没有获得有效IP[/red]")
@@ -645,7 +706,8 @@ class LatencyTester:
 
         if len(valid_results) < len(all_ips):
             rprint(
-                f"[bright_black]- 检测到 [bold bright_green]{len(valid_results)}[/bold bright_green] 个有效IP地址[/bright_black]"
+                f"[bright_black]- 检测到 [bold bright_green]{
+                    len(valid_results)}[/bold bright_green] 个有效IP地址[/bright_black]"
             )
 
         ipv4_results = [r for r in valid_results if not Utils.is_ipv6(r[0])]
@@ -659,41 +721,61 @@ class LatencyTester:
 
         # 检测 IPv4 证书有效性
         if ipv4_results:
-            logging.debug(ipv4_results)
+            logging.debug(f"有效IPv4：\n{ipv4_results}\n")
             for ip, latency in ipv4_results:
-                if await self.is_cert_valid(
-                    domains[0], ip
-                ):  # shareGroup会传入多个域名，只需检测第一个就行
-                    best_hosts.append((ip, latency))
-                    selected_count += 1
-                    break
+                if group_name == "Google 翻译":
+                    if await self.is_cert_valid(
+                        domains[0], ip
+                    ):  # shareGroup会传入多个域名，只需检测第一个就行
+                        best_hosts.append((ip, latency))
+                        selected_count += 1
+                else:
+                    if await self.is_cert_valid(
+                        domains[0], ip
+                    ):  # shareGroup会传入多个域名，只需检测第一个就行
+                        best_hosts.append((ip, latency))
+                        selected_count += 1
 
                 if (
                     ipv6_results and selected_count >= 1
                 ) or selected_count >= self.hosts_num:
                     break
-
         # 检测 IPv6 证书有效性
         if ipv6_results:
-            print()
-            logging.debug(ipv6_results)
+            logging.debug(f"有效IPv6：\n{ipv6_results}\n")
             for ip, latency in ipv6_results:
-                if await self.is_cert_valid(domains[0], ip):
-                    best_hosts.append((ip, latency))
-                    break
+                if group_name in "Google 翻译":
+                    if await self.is_cert_valid(
+                        domains[0], ip
+                    ):  # shareGroup会传入多个域名，只需检测第一个就行
+                        best_hosts.append((ip, latency))
+                        break
+                else:
+                    if await self.is_cert_valid(
+                        domains[0], ip
+                    ):  # shareGroup会传入多个域名，只需检测第一个就行
+                        best_hosts.append((ip, latency))
+                        break
 
         rprint(
-            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {latency_limit:.0f}ms ：[/bold yellow]"
+            f"[bold yellow]最快的 DNS主机 IP（优先选择 IPv6） 丨   延迟 < {
+                latency_limit:.0f}ms ：[/bold yellow]"
         )
         for ip, time in best_hosts:
             rprint(
-                f"  [green]{ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
+                f"  [green]{
+                    ip}[/green]    [bright_black]{time:.2f} ms[/bright_black]"
             )
-
+        end_time = datetime.now()
+        total_time = end_time - start_time
+        rprint(
+            f"[bold]运行时间:[/bold] [cyan]{total_time.total_seconds()                                        :.2f} 秒[/cyan]"
+        )
         return best_hosts
 
-
 # -------------------- Hosts文件管理 -------------------- #
+
+
 class HostsManager:
     def __init__(self):
         # 自动根据操作系统获取hosts文件路径
@@ -813,7 +895,8 @@ class HostsManager:
         with open("hosts", "w") as f:
             f.write("\n".join(save_hosts_content))
             rprint(
-                f"\n[blue]已生成 hosts 文件,位于: [underline]hosts[/underline][/blue] (共 {len(new_entries)} 个条目)"
+                f"\n[blue]已生成 hosts 文件,位于: [underline]hosts[/underline][/blue] (共 {
+                    len(new_entries)} 个条目)"
             )
 
         if not getattr(sys, "frozen", False):
@@ -844,19 +927,26 @@ class HostsUpdater:
             progress_str = Utils.get_align_str(i, group.name)
             rprint(progress_str)
 
-            all_ips = group.ips.copy()  # 从预设IP开始
+            all_ips = group.ips.copy()
+            if all_ips:
+                rprint(
+                    f"[bright_black]- 读取到 [bold bright_green]{
+                        len(all_ips)}[/bold bright_green] 个预设IP地址[/bright_black]"
+                )
 
             # 2. 根据不同组设置IP
             if group.group_type == GroupType.SEPARATE:
                 for domain in group.domains:
                     rprint(f"\n为域名 {domain} 设置 DNS 映射主机")
-                    all_ips = set()
+                    all_ips = set() # 重置初始ip，否则会混淆
                     resolved_ips = await self.resolver.resolve_domain(domain)
                     all_ips.update(resolved_ips)
+
                     if not all_ips:
                         logging.warning(f"{domain} 未找到任何可用IP。跳过该域名。")
                         continue
 
+                    fastest_ips = set()
                     fastest_ips = await self.tester.get_lowest_latency_hosts(
                         group.name,
                         [domain],
@@ -867,7 +957,8 @@ class HostsUpdater:
                         logging.warning(f"{domain} 未找到延迟满足要求的IP。")
                         continue
 
-                    new_entries = [f"{ip}\t{domain}" for ip, latency in fastest_ips]
+                    new_entries = [f"{ip}\t{domain}" for ip,
+                                   latency in fastest_ips]
                     all_entries.extend(new_entries)
             else:
                 # 收集组内所有域名的DNS解析结果
@@ -897,7 +988,8 @@ class HostsUpdater:
                     f"\n[bold]为组 {group.name} 内所有域名应用延迟最低的 DNS 映射主机IP:[/bold]"
                 )
                 for domain in group.domains:
-                    new_entries = [f"{ip}\t{domain}" for ip, latency in fastest_ips]
+                    new_entries = [f"{ip}\t{domain}" for ip,
+                                   latency in fastest_ips]
                     rprint(f"[bright_black]  - {domain}[/bright_black]")
                     all_entries.extend(new_entries)
 
@@ -1375,6 +1467,9 @@ class Config:
                 "2607:f8b0:4004:c07::8a",
                 "2607:f8b0:4004:c07::8b",
                 "2a00:1450:4001:829::201a",
+                "185.199.109.133",
+                "185.199.110.133",
+                "185.199.111.133",
             },
         ),
         DomainGroup(
@@ -1389,17 +1484,94 @@ class Config:
     ]
 
     # DNS 服务器
-    DNS_SERVERS = [
-        "2402:4e00::",  # DNSPod (IPv6)
-        "223.5.5.5",  # Alibaba DNS (IPv4)
-        "119.29.29.29",  # DNSPod (IPv4)
-        "2400:3200::1",  # Alibaba DNS (IPv6)
-        "8.8.8.8",  # Google Public DNS (IPv4)
-        "2001:4860:4860::8888",  # Google Public DNS (IPv6)
-        "114.114.114.114",  # 114 DNS
-        "208.67.222.222",  # Open DNS (IPv4)
-        "2620:0:ccc::2",  # Open DNS (IPv6)
-    ]
+    DNS_SERVERS = {
+        "international": [
+            # 国际 DNS 服务器
+            # {
+            #     "ip": "8.8.8.8",  # Google Public DNS
+            #     "provider": "Google",
+            #     "type": "ipv4"
+            # },
+            {
+                "ip": "2001:4860:4860::8888",  # Google Public DNS
+                "provider": "Google",
+                "type": "ipv6"
+            },
+            # {
+            #     "ip": "1.1.1.1",  # CloudFlare DNS
+            #     "provider": "CloudFlare",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "2606:4700:4700::1111",  # CloudFlare DNS
+            #     "provider": "CloudFlare",
+            #     "type": "ipv6"
+            # },
+            # {
+            #     "ip": "9.9.9.9",  # Quad9 DNS
+            #     "provider": "Quad9",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "149.112.112.112",  # Quad9 DNS
+            #     "provider": "Quad9",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "208.67.222.222",  # Open DNS
+            #     "provider": "OpenDNS",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "2620:0:ccc::2",  # Open DNS
+            #     "provider": "OpenDNS",
+            #     "type": "ipv6"
+            # },
+            # {
+            #     "ip": "2620:fe::fe",  # Quad9
+            #     "provider": "Quad9",
+            #     "type": "ipv6"
+            # },
+            # {
+            #     "ip": "2620:fe::9",  # Quad9
+            #     "provider": "Quad9",
+            #     "type": "ipv6"
+            # }
+        ],
+        "china_mainland": [
+            # 国内 DNS 服务器
+            # {
+            #     "ip": "223.5.5.5",  # 阿里云 DNS
+            #     "provider": "Alibaba",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "2400:3200::1",  # 阿里云 DNS
+            #     "provider": "Alibaba",
+            #     "type": "ipv6"
+            # },
+            # {
+            #     "ip": "119.29.29.29",  # DNSPod DNS
+            #     "provider": "Tencent",
+            #     "type": "ipv4"
+            # },
+            # {
+            #     "ip": "2402:4e00::",  # DNSPod DNS
+            #     "provider": "Tencent",
+            #     "type": "ipv6"
+            # },
+            {
+                "ip": "114.114.114.114",  # 114 DNS
+                "provider": "114DNS",
+                "type": "ipv4"
+            },
+            # {
+            #     "ip": "101.226.4.6",  # 未360dns
+            #     "provider": "360dns",
+            #     "type": "ipv4"
+            # }
+        ],
+    }
 
     @staticmethod
     def get_dns_cache_file() -> Path:
