@@ -29,7 +29,9 @@ BEST_DNS_NUM = 5  # 输出最佳 DNS 服务器数量
 DOMAINS_TO_TEST = [
     "translate.google.com",
     "translate.googleapis.com",
+    "translate-pa.googleapis.com",
     "github.com",
+    "github.io",
     "tmdb.org",
     "api.github.com",
     "assets-cdn.github.com",
@@ -40,9 +42,13 @@ DOMAINS_TO_TEST = [
 # DNS服务器列表
 DNS_SERVERS = {
     "全球": {
+        "OpenDNS": {
+            "ipv4": ["208.67.222.222"],
+            "ipv6": ["2620:0:ccc::2"],
+        },
         "Google Public DNS": {
             "ipv4": ["8.8.8.8"],
-            "ipv6": ["2001:4860:4860::8888"],
+            "ipv6": ["2001:4860:4860::8888", "2001:4860:4860::8844"],
         },
         "Quad9": {
             "ipv4": ["9.9.9.9", "149.112.112.112"],
@@ -52,25 +58,57 @@ DNS_SERVERS = {
             "ipv4": ["64.6.64.6", "64.6.65.6"],
             "ipv6": ["2620:74:1b::1:1", "2620:74:1c::2:2"],
         },
-        "OpenDNS": {
-            "ipv4": ["208.67.222.222"],
-            "ipv6": ["2620:0:ccc::2"],
+        "NTT Communications DNS": {
+            "ipv4": ["129.250.35.250"],
+            "ipv6": []
         },
-        "CloudFlareDNS": {
-            "ipv4": ["1.1.1.1"],
-            "ipv6": ["2606:4700:4700::1111"],
+        "KT DNS": {
+            "ipv4": ["168.126.63.1"],
+            "ipv6": []
+        },
+        "CPC HK": {
+            "ipv4": ["210.184.24.65"],
+            "ipv6": []
+        },
+        "Soft Bank": {
+            "ipv4": ["101.110.50.106"],
+            "ipv6": []
+        },
+        "SingNet": {
+            "ipv4": ["118.201.189.90"],
+            "ipv6": []
+        },
+        "SK Broadband": {
+            "ipv4": ["1.228.180.5"],
+            "ipv6": []
+        },
+        "Korea Telecom": {
+            "ipv4": ["183.99.33.6"],
+            "ipv6": []
         },
     },
     "中国大陆": {
-        "阿里云DNS": {
-            "ipv4": ["223.5.5.5", "223.6.6.6"],
-            "ipv6": ["2400:3200::1", "2400:3200:baba::1"],
-        },
-        "DNSPod (腾讯)": {"ipv4": ["119.29.29.29"], "ipv6": ["2402:4e00::"]},
         "114DNS": {
             "ipv4": ["114.114.114.114", "114.114.115.115"],
-            "ipv6": ["240c::6666", "240c::6644"],
+            "ipv6": [],
         },
+        "中国联通": {
+            "ipv4": ["1.1.8.8"],
+            "ipv6": [],
+        },
+        "上海通讯": {
+            "ipv4": ["202.46.33.250", "202.46.33.250"],
+            "ipv6": [],
+        },
+        "百度DNS": {
+            "ipv4": ["180.76.76.76"],
+            "ipv6": [],
+        },
+        # "阿里云DNS": {
+        #     "ipv4": ["223.5.5.5", "223.6.6.6"],
+        #     "ipv6": ["2400:3200::1", "2400:3200:baba::1"],
+        # },
+        # "DNSPod (腾讯)": {"ipv4": ["119.29.29.29"], "ipv6": ["2402:4e00::"]},
     },
 }
 
@@ -143,7 +181,7 @@ def find_available_dns(args) -> tuple[dict, dict]:
 
             for provider, servers in providers.items():
                 for ip_version in ["ipv4", "ipv6"]:
-                    for server in servers[ip_version]:
+                    for server in servers.get(ip_version, []):
                         future = executor.submit(
                             evaluate_dns_server, server, ip_version
                         )
@@ -247,6 +285,9 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
     :param ipv4_dns_list: IPv4 DNS服务器列表
     :param ipv6_dns_list: IPv6 DNS服务器列表
     """
+    ipv4_dns_list = [str(dns) for dns in ipv4_dns_list if dns]
+    ipv6_dns_list = [str(dns) for dns in ipv6_dns_list if dns]
+
     system = platform.system()
     logger.info(f"正在设置DNS服务器for {system}")
     if system == "Windows":
@@ -490,7 +531,7 @@ def get_input_with_timeout(prompt, timeout=10):
         print("\n已超时，自动执行...")
         return "y"
     print()  # 换行
-    return user_input[0].strip() if user_input else "y"
+    return user_input[0].strip() if user_input else "y", thread
 
 
 def main():
@@ -549,14 +590,16 @@ def main():
                 print_recommended_dns_table(
                     recommended_dns[ip_version], ip_version, available_dns
                 )
-
-        confirm = get_input_with_timeout(
-            "\n是否要设置系统DNS为推荐的最佳服务器？(y/n，10秒后自动执行): ", 10
+        print()
+        confirm, thread = get_input_with_timeout(
+            "是否要设置系统DNS为推荐的最佳服务器？(y/n，10秒后自动执行): ", 10
         )
         if confirm.lower() == "y":
             set_dns_servers(recommended_dns["ipv4"], recommended_dns["ipv6"])
             logger.info("DNS服务器已更新")
-            input("\n任务执行完毕，按任意键退出！")
+            if thread.is_alive():  # 确认输入线程是否仍在运行
+                thread.join()      # 等待线程完成
+            input("任务执行完毕，按任意键退出！")
         else:
             logger.info("操作已取消")
     else:
@@ -614,12 +657,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--show-availbale-list",
         "--list",
+        "-l",
         action="store_true",
         help="显示可用dns列表，通过 --num 控制娴熟数量",
     )
     parser.add_argument(
         "--best-dns-num",
         "--num",
+        "-n",
         default=BEST_DNS_NUM,
         type=int,
         action="store",
@@ -641,7 +686,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--show-resolutions",
-        "--show",
+        "--resolutions",
+        "-r",
         action="store_true",
         help="显示域名解析结果",
     )
