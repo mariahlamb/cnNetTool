@@ -70,10 +70,11 @@ pip install -r requirements.txt
 ### DNS 服务器工具 `SetDNS.py`
 
 * --debug 启用调试日志
-* --show-availbale-list, --list 显示可用dns列表，通过 --num 控制显示数量
-* --best-dns-num BEST_DNS_NUM, --num 显示最佳DNS服务器的数量
+* --show-availbale-list, --list, -l 显示可用dns列表，通过 --num 控制显示数量
+* --best-dns-num BEST_DNS_NUM, --num, -n 显示最佳DNS服务器的数量
 * --algorithm --mode {region,overall} 默认 `region` 平衡IPv4和ipv6 DNS，选择 `overall` 则会在所有IP中选择最快IP
-* --show-resolutions, --show 显示域名解析结果
+* --show-resolutions, --resolutions, -r 显示域名解析结果
+* --only-global, --global 仅使用国际DNS服务器
 
 ### Hosts文件工具 `SetHosts.py`
 

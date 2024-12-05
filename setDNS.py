@@ -58,34 +58,13 @@ DNS_SERVERS = {
             "ipv4": ["64.6.64.6", "64.6.65.6"],
             "ipv6": ["2620:74:1b::1:1", "2620:74:1c::2:2"],
         },
-        "NTT Communications DNS": {
-            "ipv4": ["129.250.35.250"],
-            "ipv6": []
-        },
-        "KT DNS": {
-            "ipv4": ["168.126.63.1"],
-            "ipv6": []
-        },
-        "CPC HK": {
-            "ipv4": ["210.184.24.65"],
-            "ipv6": []
-        },
-        "Soft Bank": {
-            "ipv4": ["101.110.50.106"],
-            "ipv6": []
-        },
-        "SingNet": {
-            "ipv4": ["118.201.189.90"],
-            "ipv6": []
-        },
-        "SK Broadband": {
-            "ipv4": ["1.228.180.5"],
-            "ipv6": []
-        },
-        "Korea Telecom": {
-            "ipv4": ["183.99.33.6"],
-            "ipv6": []
-        },
+        "NTT Communications DNS": {"ipv4": ["129.250.35.250"], "ipv6": []},
+        "KT DNS": {"ipv4": ["168.126.63.1"], "ipv6": []},
+        "CPC HK": {"ipv4": ["210.184.24.65"], "ipv6": []},
+        "Soft Bank": {"ipv4": ["101.110.50.106"], "ipv6": []},
+        "SingNet": {"ipv4": ["118.201.189.90"], "ipv6": []},
+        "SK Broadband": {"ipv4": ["1.228.180.5"], "ipv6": []},
+        "Korea Telecom": {"ipv4": ["183.99.33.6"], "ipv6": []},
     },
     "中国大陆": {
         "114DNS": {
@@ -309,7 +288,7 @@ def set_dns_servers(ipv4_dns_list: list[str], ipv6_dns_list: list[str]):
                     continue
                 if ipv4_dns_list:
                     logger.debug(
-                        f"设置IPv4 DNS for {interface}: {
+                        f"设置IPv4 DNS for {interface}:{
                             ', '.join(ipv4_dns_list)}"
                     )
                     try:
@@ -516,11 +495,11 @@ def print_available_dns(available_dns, best_dns_num):
 
 
 def get_input_with_timeout(prompt, timeout=10):
-    print(prompt, end="", flush=True)
+    # print(prompt, end="", flush=True)
     user_input = []
 
     def input_thread():
-        user_input.append(input())
+        user_input.append(input(prompt))
 
     thread = threading.Thread(target=input_thread)
     thread.daemon = True
@@ -529,7 +508,7 @@ def get_input_with_timeout(prompt, timeout=10):
     thread.join(timeout)
     if thread.is_alive():
         print("\n已超时，自动执行...")
-        return "y"
+        return "y", thread
     print()  # 换行
     return user_input[0].strip() if user_input else "y", thread
 
@@ -598,7 +577,7 @@ def main():
             set_dns_servers(recommended_dns["ipv4"], recommended_dns["ipv6"])
             logger.info("DNS服务器已更新")
             if thread.is_alive():  # 确认输入线程是否仍在运行
-                thread.join()      # 等待线程完成
+                thread.join()  # 等待线程完成
             input("任务执行完毕，按任意键退出！")
         else:
             logger.info("操作已取消")
@@ -659,7 +638,7 @@ if __name__ == "__main__":
         "--list",
         "-l",
         action="store_true",
-        help="显示可用dns列表，通过 --num 控制娴熟数量",
+        help="显示可用dns列表，通过 --num 控制显示数量",
     )
     parser.add_argument(
         "--best-dns-num",

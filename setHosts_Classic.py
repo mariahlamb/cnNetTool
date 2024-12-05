@@ -10,7 +10,6 @@ import asyncio
 import platform
 import logging
 import argparse
-import aiohttp
 import socket
 from enum import Enum
 from datetime import datetime, timedelta, timezone
@@ -18,12 +17,13 @@ from typing import List, Set, Optional, Dict, Tuple
 import ctypes
 import re
 from functools import wraps
+import httpx
 from rich import print as rprint
 from rich.progress import Progress, SpinnerColumn, TextColumn
 import wcwidth
 
 # -------------------- 常量设置 -------------------- #
-RESOLVER_TIMEOUT = 1  # DNS 解析超时时间 秒
+RESOLVER_TIMEOUT = 0.1  # DNS 解析超时时间 秒
 HOSTS_NUM = 1  # 每个域名限定Hosts主机 ipv4 数量
 MAX_LATENCY = 300  # 允许的最大延迟
 PING_TIMEOUT = 1  # ping 超时时间
@@ -332,11 +332,16 @@ class DomainResolver:
             logging.error(f"保存 DNS 缓存到文件时发生错误: {e}")
 
     async def resolve_domain(self, domain: str) -> Set[str]:
+        start_time = datetime.now()
         ips = set()
 
         # 1. 首先通过常规DNS服务器解析
         dns_ips = await self._resolve_via_dns(domain, args.dns_resolve_policy)
         ips.update(dns_ips)
+
+        dns_resolve_end_time = datetime.now()
+        dns_resolve_duration = dns_resolve_end_time - start_time
+        logging.debug(f"DNS解析耗时: {dns_resolve_duration.total_seconds():.2f}秒")
 
         # 2. 然后通过DNS_records解析
         # 由于init时已经处理了过期文件，这里只需要检查域名是否在缓存中
@@ -350,13 +355,23 @@ class DomainResolver:
                 ipv4_ips)+len(ipv6_ips)} 个 DNS 主机:\n{ipv4_ips}\n{ipv6_ips if ipv6_ips else ''}\n")
         else:
             ipaddress_ips = await self._resolve_via_ipaddress(domain)
-            ips.update(ipaddress_ips)
+            if ipaddress_ips:
+                ips.update(ipaddress_ips)
 
         if ips:
             logging.debug(f"成功通过 DNS服务器 和 DNS记录 解析 {domain}, 发现 {
                           len(ips)} 个 唯一 DNS 主机\n{ips}\n")
         else:
             logging.debug(f"警告: 无法解析 {domain}")
+
+        ipaddress_resolve_end_time = datetime.now()
+        ipaddress_resolve_duration = ipaddress_resolve_end_time - dns_resolve_end_time
+        total_resolve_duration = ipaddress_resolve_end_time - start_time
+
+        logging.debug(
+            f"IP地址解析耗时: {ipaddress_resolve_duration.total_seconds():.2f}秒")
+        logging.debug(
+            f"DNS解析总耗时: {total_resolve_duration.total_seconds():.2f}秒")
 
         return ips
 
@@ -416,25 +431,25 @@ class DomainResolver:
             dns_servers = self.dns_servers['china_mainland'] + \
                 self.dns_servers['international']
             # raise ValueError(f"无效的 DNS 类型：{dns_type}")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10):
-            # 并发解析所有选定的 DNS 服务器，并保留非空结果
-            tasks = [resolve_with_dns_server(dns_server)
-                     for dns_server in dns_servers]
-            results = await asyncio.gather(*tasks)
 
-            # 合并所有非空的解析结果
-            ips = set(ip for result in results for ip in result if ip)
+        # 并发解析所有选定的 DNS 服务器，并保留非空结果
+        tasks = [resolve_with_dns_server(dns_server)
+                 for dns_server in dns_servers]
+        results = await asyncio.gather(*tasks)
 
+        # 合并所有非空的解析结果
+        ips = set(ip for result in results for ip in result if ip)
         if ips:
             logging.debug(f"成功使用多个 DNS 服务器解析 {domain}，共 {
                           len(ips)} 个主机:\n{ips}\n")
-
+        # input("按任意键继续")
         return ips
 
-    def retry_async(tries=3, delay=0):
+    def retry_async(tries=3, delay=0.1):
         def decorator(func):
             @wraps(func)
             async def wrapper(*args, **kwargs):
+                domain = args[1]
                 for attempt in range(tries):
                     try:
                         return await func(*args, **kwargs)
@@ -443,21 +458,63 @@ class DomainResolver:
                             print(f"第 {attempt + 2} 次尝试:")
                             # logging.debug(f"通过DNS_records解析 {args[1]},第 {attempt + 2} 次尝试:")
                         if attempt == tries - 1:
-                            print(
-                                f"通过DNS_records解析 {args[1]},{tries} 次尝试后终止！"
+                            self = args[0]  # 明确 self 的引用
+                            domain = args[1]
+                            current_time = datetime.now().isoformat()
+                            self.dns_records[domain] = {
+                                "last_update": current_time,
+                                "ipv4": [],
+                                "ipv6": [],
+                                "source": "DNS_records",
+                            }
+                            self.save_hosts_cache()
+                            logging.warning(
+                                f"ipaddress.com {tries} 次尝试后未解析到 {
+                                    domain} 的 DNS_records 地址，"
+                                f"已写入空地址到缓存以免无谓消耗网络资源"
                             )
-                            raise e
+                            print(f"通过 DNS_records 解析 {
+                                  domain}，{tries} 次尝试后终止！")
+                            return None
                         await asyncio.sleep(delay)
                 return None
-
             return wrapper
-
         return decorator
+
+    import logging.config
+    LOGGING_CONFIG = {
+        "version": 1,
+        "handlers": {
+            "httpxHandlers": {
+                "class": "logging.StreamHandler",
+                "formatter": "http",
+                "stream": "ext://sys.stderr"
+            }
+        },
+        "formatters": {
+            "http": {
+                "format": "%(levelname)s [%(asctime)s] %(name)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            }
+        },
+        'loggers': {
+            'httpx': {
+                'handlers': ['httpxHandlers'],
+                'level': 'WARNING',
+            },
+            'httpcore': {
+                'handlers': ['httpxHandlers'],
+                'level': 'WARNING',
+            },
+        }
+    }
+
+    logging.config.dictConfig(LOGGING_CONFIG)
 
     @retry_async(tries=3)
     async def _resolve_via_ipaddress(self, domain: str) -> Set[str]:
         ips = set()
-        url = f"https://sites.ipaddress.com/{domain}"
+        url = f"https://www.ipaddress.com/website/{domain}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -465,54 +522,57 @@ class DomainResolver:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=5) as response:
-                    if response.status != 200:
-                        logging.info(
-                            f"DNS_records(ipaddress.com) 查询请求失败: {
-                                response.status}"
-                        )
-                        return ips
+            # 使用httpx替代aiohttp
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(1.0),
+                follow_redirects=True,
+                http2=True,
+            ) as client:
+                response = await client.get(url, headers=headers)
 
-                    content = await response.text()
-                    # 匹配IPv4地址
-                    ipv4_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
-                    ipv4_ips = set(re.findall(ipv4_pattern, content))
+                # # 使用内置方法检查状态码
+                response.raise_for_status()  # 自动处理非200状态码
+                # if response.status_code != 200:
+                #     logging.warning(f"DNS解析请求失败: {response.status_code} for {domain}")
+                #     return ips
 
-                    # 匹配IPv6地址
-                    ipv6_pattern = r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"
-                    ipv6_ips = set(re.findall(ipv6_pattern, content))
+                content = response.text
+                # 使用更精确的正则表达式
+                ipv4_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
+                ipv6_pattern = r"(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"
 
-                    ips.update(ipv4_ips)
-                    ips.update(ipv6_ips)
+                ipv4_ips = set(re.findall(ipv4_pattern, content))
+                ipv6_ips = set(re.findall(ipv6_pattern, content))
 
-                    if ips:
-                        # 更新hosts缓存
-                        current_time = datetime.now().isoformat()
-                        self.dns_records[domain] = {
-                            "last_update": current_time,
-                            "ipv4": list(ipv4_ips),
-                            "ipv6": list(ipv6_ips),
-                            "source": "DNS_records",
-                        }
-                        # 保存到文件
-                        self.save_hosts_cache()
-                        logging.debug(
-                            f"通过 ipaddress.com 成功解析 {
-                                domain} 并更新 DNS_records 缓存"
-                        )
-                        logging.debug(f"DNS_records：\n {ips}")
-                    else:
-                        logging.warning(
-                            f"ipaddress.com 未解析到 {domain} 的 DNS_records 地址"
-                        )
+                ips.update(ipv4_ips)
+                ips.update(ipv6_ips)
 
+                if ips:
+                    current_time = datetime.now().isoformat()
+                    self.dns_records[domain] = {
+                        "last_update": current_time,
+                        "ipv4": list(ipv4_ips),
+                        "ipv6": list(ipv6_ips),
+                        "source": "DNS_records",
+                    }
+                    self.save_hosts_cache()
+                    logging.debug(f"通过 ipaddress.com 成功解析 {
+                                  domain} 并更新 DNS_records 缓存")
+                    logging.debug(f"DNS_records：\n {ips}")
+                else:
+                    self.dns_records[domain] = {
+                        "last_update": datetime.now().isoformat(),
+                        "ipv4": [],
+                        "ipv6": [],
+                        "source": "DNS_records",
+                    }
+                    self.save_hosts_cache()
+                    logging.warning(f"ipaddress.com 未解析到 {
+                        domain} 的 DNS_records 地址,已写入空地址到缓存以免无谓消耗网络资源")
         except Exception as e:
             logging.error(f"通过DNS_records解析 {domain} 失败! {e}")
             raise
-
         return ips
-
 
 # -------------------- 延迟测速模块 -------------------- #
 
@@ -588,28 +648,11 @@ class LatencyTester:
             ipv6_results = [
                 r for r in valid_latency_ips if Utils.is_ipv6(r[0])]
             # 第二步：使用线程池并发验证SSL证书
-            # loop = asyncio.get_running_loop()
-            # ssl_verification_tasks = []
-
             # if "github" in group_name.lower():
             if len(valid_latency_ips) > 1 and any(keyword in group_name.lower() for keyword in ["github", "google"]):
                 rprint(
                     f"[bright_black]- 验证SSL证书...[/bright_black]"
                 )
-                # batch_size = args.batch_size
-                # total_results = len(valid_latency_ips)
-
-                # for i in range(0, total_results, batch_size):
-                #     min_len = min(total_results, batch_size)
-                #     batch = valid_latency_ips[i:i + min_len]
-                #     valid_results = await self.process_hosts(domains, batch, executor, valid_latency_ips)
-                #     if valid_results:
-                #         break
-                # if not valid_results:
-                #     logging.warning(f"未发现延迟小于 {latency_limit}ms 且证书有效的IP。")
-                #     return []
-
-                # 方案0
                 ipv4_count = 0
                 ipv6_count = 0
                 batch_size = args.batch_size
@@ -634,7 +677,6 @@ class LatencyTester:
                         for ip, latency in batch
                     ]
 
-                    # 方案0-1
                     for future in asyncio.as_completed(ssl_verification_tasks):
                         ip, latency, ssl_valid = await future
                         if ssl_valid:
@@ -653,34 +695,6 @@ class LatencyTester:
                             else:
                                 if ipv4_count >= self.hosts_num:
                                     break
-
-                    # # 方案0-2 better
-                    # done, pending = await asyncio.wait(
-                    #     ssl_verification_tasks
-                    # )
-
-                    # for task in done:
-                    #     (ip, latency, ssl_valid) = await task
-                    #     if ssl_valid:
-                    #         valid_results.append((ip, latency))
-                    #         if Utils.is_ipv6(ip):
-                    #             ipv6_count += 1
-                    #         else:
-                    #             ipv4_count += 1
-                    #         if ipv6_results:
-                    #             if ipv4_results:
-                    #                 if ipv6_count >= 1 and ipv4_count >= 1:
-                    #                     break
-                    #             else:
-                    #                 if ipv6_count >= 1:
-                    #                     break
-                    #         else:
-                    #             if ipv4_count >= self.hosts_num:
-                    #                 break
-                    # # 显式取消剩余任务
-                    # for task in pending:
-                    #     task.cancel()
-
                     if ipv6_results:
                         if ipv4_results:
                             if ipv6_count >= 1 and ipv4_count >= 1:
@@ -691,130 +705,14 @@ class LatencyTester:
                     else:
                         if ipv4_count >= self.hosts_num:
                             break
-
-                # loop = asyncio.get_running_loop()
-                # ssl_verification_tasks = []
-
-                # for ip, latency in valid_latency_ips:
-                #     ssl_verification_tasks.append(
-                #         loop.run_in_executor(
-                #             executor,
-                #             self._sync_is_cert_valid_dict,
-                #             domains[0],
-                #             ip,
-                #             latency
-                #         )
-                #     )
-
-                # # 方案1
-                # # 等待SSL证书验证结果
-                # ssl_results = await asyncio.gather(*ssl_verification_tasks)
-                # valid_results = []
-                # for ip,latency,ssl_valid in ssl_results:
-                #     if ssl_valid:
-                #         print(ip,latency,ssl_valid)
-                #         valid_results.append((ip,latency))
-
-                # 结合延迟和SSL验证结果
-
-                # # 方案2
-                # valid_results = []
-                # ipv4_count = 0
-                # ipv6_count = 0
-                # ssl_verification_tasks = [
-                #     asyncio.ensure_future(task) for task in ssl_verification_tasks
-                # ]
-                # for future in asyncio.as_completed(ssl_verification_tasks):
-                #     ip, latency, ssl_valid = await future
-                #     if ssl_valid:
-                #         valid_results.append((ip, latency))
-                #         if Utils.is_ipv6(ip):
-                #             ipv6_count += 1
-                #         else:
-                #             ipv4_count += 1
-                #         if ipv6_results:
-                #             if ipv4_results:
-                #                 if ipv6_count >= 1 and ipv4_count >= 1:
-                #                     break
-                #             else:
-                #                 if ipv6_count >= 1:
-                #                     break
-                #         else:
-                #             if ipv4_count >= self.hosts_num:
-                #                 break
-                # # 取消所有未完成任务
-                # for task in ssl_verification_tasks:
-                #     if not task.done():
-                #         task.cancel()
-
-                # #    方案3
-                # valid_results = []
-                # ipv4_count = 0
-                # ipv6_count = 0
-                # done, pending = await asyncio.wait(
-                #     ssl_verification_tasks
-                # )
-
-                # for task in done:
-                #     (ip, latency, ssl_valid) = await task
-                #     if ssl_valid:
-                #         print(ip)
-                #         valid_results.append((ip, latency))
-                #         if Utils.is_ipv6(ip):
-                #             ipv6_count += 1
-                #         else:
-                #             ipv4_count += 1
-                #         if ipv6_results:
-                #             if ipv4_results:
-                #                 if ipv6_count >= 1 and ipv4_count >= 1:
-                #                     break
-                #             else:
-                #                 if ipv6_count >= 1:
-                #                     break
-                #         else:
-                #             if ipv4_count >= self.hosts_num:
-                #                 break
-                # # 显式取消剩余任务
-                # for task in pending:
-                #     task.cancel()
-
-                # break
-                # print(valid_results)
-                # input("暂停1")
             else:
                 valid_results = valid_latency_ips
-
-            # for ip, latency in valid_latency_ips:
-            #     ssl_verification_tasks.append(
-            #         loop.run_in_executor(
-            #             executor,
-            #             self._sync_is_cert_valid,
-            #             domains[0],
-            #             ip
-            #         )
-            #     )
-
-            # # 等待SSL证书验证结果
-            # ssl_results = await asyncio.gather(*ssl_verification_tasks)
-            # for (ip, latency), ssl_valid in zip(valid_latency_ips, ssl_results):
-            #     print((ip,latency),ssl_valid)
-            # # input("暂停1")
-            # # 结合延迟和SSL验证结果
-            # valid_results = [
-            #     (ip, latency) for (ip, latency), ssl_valid in zip(valid_latency_ips, ssl_results)
-            #     if ssl_valid
-            # ]
-
-            # print(valid_results)
-            # input("暂停")
 
         # 按延迟排序并选择最佳主机
         valid_results = sorted(valid_results, key=lambda x: x[1])
 
         if not valid_results:
             rprint(f"[red]未发现延迟小于 {latency_limit}ms 且证书有效的IP。[/red]")
-            # input("按任意键继续")
-            # exit("主动退出")
 
         # 选择最佳主机（支持IPv4和IPv6）
         best_hosts = self._select_best_hosts(valid_results)
@@ -926,7 +824,7 @@ class LatencyTester:
 
         except ConnectionError as e:
             logging.debug(f"{domain} ({ip}): 连接被强迫关闭，ip有效 - {e}")
-            return False
+            return True
         except Exception as e:
             logging.debug(f"{domain} ({ip}): 证书验证失败 - {e}")
             return False
@@ -957,10 +855,7 @@ class LatencyTester:
         except ConnectionError as e:
             logging.debug(f"{domain} ({ip}) {
                 latency:.0f}ms: 连接被强迫关闭，ip有效 - {e}")
-            rprint(f"{domain} ({ip}) {
-                latency:.0f}ms: 连接被强迫关闭，ip有效 - {e}")
-            input("按任意键继续...")
-            return (ip, latency, False)
+            return (ip, latency, True)
         except Exception as e:
             logging.debug(f"{domain} ({ip}) {latency:.0f}ms: 证书验证失败 - {e}")
             return (ip, latency, False)
@@ -991,12 +886,9 @@ class LatencyTester:
                         return (ip, latency, True)  # 任意一个验证通过即返回成功
 
             except ConnectionError as e:
-                # logging.debug(f"{domain} ({ip}) {
-                #             latency:.0f}ms: 连接被强迫关闭，ip有效 - {e}")
-                rprint(f"[red]{domain} ({ip}) {
-                    latency:.0f}ms: 连接被强迫关闭，ip有效[/red]")
-                # input("按任意键继续...\n")
-                continue  # 检查下一个 domain
+                logging.debug(f"{domain} ({ip}) {
+                    latency:.0f}ms: 连接被强迫关闭，ip有效 - {e}")
+                return (ip, latency, True)
             except Exception as e:
                 logging.debug(f"{domain} ({ip}) {latency:.0f}ms: 证书验证失败 - {e}")
                 continue  # 检查下一个 domain
@@ -1043,7 +935,7 @@ class LatencyTester:
         end_time = datetime.now()
         total_time = end_time - start_time
         rprint(
-            f"[bold]运行时间:[/bold] [cyan]{total_time.total_seconds():.2f} 秒[/cyan]")
+            f"[bright_black]- 运行时间:[/bright_black] [cyan]{total_time.total_seconds():.2f} 秒[/cyan]")
 
 
 # -------------------- Hosts文件管理 -------------------- #
@@ -1204,6 +1096,8 @@ class HostsUpdater:
                     f"[bright_black]- 读取到 [bold bright_green]{
                         len(all_ips)}[/bold bright_green] 个预设IP地址[/bright_black]"
                 )
+            else:
+                all_ips = set()
 
             # 2. 根据不同组设置IP
             if group.group_type == GroupType.SEPARATE:
@@ -1233,9 +1127,12 @@ class HostsUpdater:
                     all_entries.extend(new_entries)
             else:
                 # 收集组内所有域名的DNS解析结果
-                for domain in group.domains:
-                    resolved_ips = await self.resolver.resolve_domain(domain)
-                    all_ips.update(resolved_ips)
+                domain_resolve_tasks = [self.resolver.resolve_domain(
+                    domain) for domain in group.domains]
+                resolved_ips = await asyncio.gather(*domain_resolve_tasks, return_exceptions=True)
+
+                all_ips.update(
+                    ip for ip_list in resolved_ips for ip in ip_list if ip)
 
                 if not all_ips:
                     logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
@@ -1375,137 +1272,137 @@ class Config:
                 "auth.themoviedb.org",
             ],
             ips={
-                # "18.239.36.98",
-                # "108.160.169.178",
-                # "18.165.122.73",
-                # "13.249.146.88",
-                # "13.224.167.74",
-                # "13.249.146.96",
-                # "99.86.4.122",
-                # "108.160.170.44",
-                # "108.160.169.54",
-                # "98.159.108.58",
-                # "13.226.225.4",
-                # "31.13.80.37",
-                # "202.160.128.238",
-                # "13.224.167.16",
-                # "199.96.63.53",
-                # "104.244.43.6",
-                # "18.239.36.122",
-                # "66.220.149.32",
-                # "108.157.14.15",
-                # "202.160.128.14",
-                # "52.85.242.44",
-                # "199.59.149.207",
-                # "54.230.129.92",
-                # "54.230.129.11",
-                # "103.240.180.117",
-                # "66.220.148.145",
-                # "54.192.175.79",
-                # "143.204.68.100",
-                # "31.13.84.2",
-                # "18.239.36.64",
-                # "52.85.242.124",
-                # "54.230.129.83",
-                # "18.165.122.27",
-                # "13.33.88.3",
-                # "202.160.129.36",
-                # "108.157.14.112",
-                # "99.86.4.16",
-                # "199.59.149.237",
-                # "199.59.148.202",
-                # "54.230.129.74",
-                # "202.160.128.40",
-                # "199.16.156.39",
-                # "13.224.167.108",
-                # "192.133.77.133",
-                # "168.143.171.154",
-                # "54.192.175.112",
-                # "128.242.245.43",
-                # "54.192.175.108",
-                # "54.192.175.87",
-                # "199.59.148.229",
-                # "143.204.68.22",
-                # "13.33.88.122",
-                # "52.85.242.73",
-                # "18.165.122.87",
-                # "168.143.162.58",
-                # "103.228.130.61",
-                # "128.242.240.180",
-                # "99.86.4.8",
-                # "104.244.46.52",
-                # "199.96.58.85",
-                # "13.226.225.73",
-                # "128.121.146.109",
-                # "69.30.25.21",
-                # "13.249.146.22",
-                # "13.249.146.87",
-                # "157.240.12.5",
-                # "3.162.38.113",
-                # "143.204.68.72",
-                # "104.244.43.52",
-                # "13.224.167.10",
-                # "3.162.38.31",
-                # "3.162.38.11",
-                # "3.162.38.66",
-                # "202.160.128.195",
-                # "162.125.6.1",
-                # "104.244.43.128",
-                # "18.165.122.23",
-                # "99.86.4.35",
-                # "108.160.165.212",
-                # "108.157.14.27",
-                # "13.226.225.44",
-                # "157.240.9.36",
-                # "13.33.88.37",
-                # "18.239.36.92",
-                # "199.59.148.247",
-                # "13.33.88.97",
-                # "31.13.84.34",
-                # "124.11.210.175",
-                # "13.226.225.52",
-                # "31.13.86.21",
-                # "108.157.14.86",
-                # "143.204.68.36",
+                "18.239.36.98",
+                "108.160.169.178",
+                "18.165.122.73",
+                "13.249.146.88",
+                "13.224.167.74",
+                "13.249.146.96",
+                "99.86.4.122",
+                "108.160.170.44",
+                "108.160.169.54",
+                "98.159.108.58",
+                "13.226.225.4",
+                "31.13.80.37",
+                "202.160.128.238",
+                "13.224.167.16",
+                "199.96.63.53",
+                "104.244.43.6",
+                "18.239.36.122",
+                "66.220.149.32",
+                "108.157.14.15",
+                "202.160.128.14",
+                "52.85.242.44",
+                "199.59.149.207",
+                "54.230.129.92",
+                "54.230.129.11",
+                "103.240.180.117",
+                "66.220.148.145",
+                "54.192.175.79",
+                "143.204.68.100",
+                "31.13.84.2",
+                "18.239.36.64",
+                "52.85.242.124",
+                "54.230.129.83",
+                "18.165.122.27",
+                "13.33.88.3",
+                "202.160.129.36",
+                "108.157.14.112",
+                "99.86.4.16",
+                "199.59.149.237",
+                "199.59.148.202",
+                "54.230.129.74",
+                "202.160.128.40",
+                "199.16.156.39",
+                "13.224.167.108",
+                "192.133.77.133",
+                "168.143.171.154",
+                "54.192.175.112",
+                "128.242.245.43",
+                "54.192.175.108",
+                "54.192.175.87",
+                "199.59.148.229",
+                "143.204.68.22",
+                "13.33.88.122",
+                "52.85.242.73",
+                "18.165.122.87",
+                "168.143.162.58",
+                "103.228.130.61",
+                "128.242.240.180",
+                "99.86.4.8",
+                "104.244.46.52",
+                "199.96.58.85",
+                "13.226.225.73",
+                "128.121.146.109",
+                "69.30.25.21",
+                "13.249.146.22",
+                "13.249.146.87",
+                "157.240.12.5",
+                "3.162.38.113",
+                "143.204.68.72",
+                "104.244.43.52",
+                "13.224.167.10",
+                "3.162.38.31",
+                "3.162.38.11",
+                "3.162.38.66",
+                "202.160.128.195",
+                "162.125.6.1",
+                "104.244.43.128",
+                "18.165.122.23",
+                "99.86.4.35",
+                "108.160.165.212",
+                "108.157.14.27",
+                "13.226.225.44",
+                "157.240.9.36",
+                "13.33.88.37",
+                "18.239.36.92",
+                "199.59.148.247",
+                "13.33.88.97",
+                "31.13.84.34",
+                "124.11.210.175",
+                "13.226.225.52",
+                "31.13.86.21",
+                "108.157.14.86",
+                "143.204.68.36",
             },
         ),
         DomainGroup(
             name="TMDB 封面",
             domains=["image.tmdb.org", "images.tmdb.org"],
             ips={
-                # "89.187.162.242",
-                # "169.150.249.167",
-                # "143.244.50.209",
-                # "143.244.50.210",
-                # "143.244.50.88",
-                # "143.244.50.82",
-                # "169.150.249.165",
-                # "143.244.49.178",
-                # "143.244.49.179",
-                # "143.244.50.89",
-                # "143.244.50.212",
-                # "169.150.207.215",
-                # "169.150.249.163",
-                # "143.244.50.85",
-                # "143.244.50.91",
-                # "143.244.50.213",
-                # "169.150.249.164",
-                # "169.150.249.162",
-                # "169.150.249.166",
-                # "143.244.49.183",
-                # "143.244.49.177",
-                # "143.244.50.83",
-                # "138.199.9.104",
-                # "169.150.249.169",
-                # "143.244.50.214",
-                # "79.127.213.217",
-                # "143.244.50.87",
-                # "143.244.50.84",
-                # "169.150.249.168",
-                # "143.244.49.180",
-                # "143.244.50.86",
-                # "143.244.50.90",
-                # "143.244.50.211",
+                "89.187.162.242",
+                "169.150.249.167",
+                "143.244.50.209",
+                "143.244.50.210",
+                "143.244.50.88",
+                "143.244.50.82",
+                "169.150.249.165",
+                "143.244.49.178",
+                "143.244.49.179",
+                "143.244.50.89",
+                "143.244.50.212",
+                "169.150.207.215",
+                "169.150.249.163",
+                "143.244.50.85",
+                "143.244.50.91",
+                "143.244.50.213",
+                "169.150.249.164",
+                "169.150.249.162",
+                "169.150.249.166",
+                "143.244.49.183",
+                "143.244.49.177",
+                "143.244.50.83",
+                "138.199.9.104",
+                "169.150.249.169",
+                "143.244.50.214",
+                "79.127.213.217",
+                "143.244.50.87",
+                "143.244.50.84",
+                "169.150.249.168",
+                "143.244.49.180",
+                "143.244.50.86",
+                "143.244.50.90",
+                "143.244.50.211",
             },
         ),
         DomainGroup(
@@ -1545,202 +1442,203 @@ class Config:
                 "translate.googleapis.com",
                 "translate-pa.googleapis.com",
             ],
-            ips={
-                "108.177.127.214",
-                "108.177.97.141",
-                "142.250.101.157",
-                "142.250.110.102",
-                "142.250.141.100",
-                "142.250.145.113",
-                "142.250.145.139",
-                "142.250.157.133",
-                "142.250.157.149",
-                "142.250.176.6",
-                "142.250.181.232",
-                "142.250.183.106",
-                "142.250.187.139",
-                "142.250.189.6",
-                "142.250.196.174",
-                "142.250.199.161",
-                "142.250.199.75",
-                "142.250.204.37",
-                "142.250.204.38",
-                "142.250.204.49",
-                "142.250.27.113",
-                "142.250.4.136",
-                "142.250.66.10",
-                "142.250.76.35",
-                "142.251.1.102",
-                "142.251.1.136",
-                "142.251.163.91",
-                "142.251.165.101",
-                "142.251.165.104",
-                "142.251.165.106",
-                "142.251.165.107",
-                "142.251.165.110",
-                "142.251.165.112",
-                "142.251.165.122",
-                "142.251.165.133",
-                "142.251.165.139",
-                "142.251.165.146",
-                "142.251.165.152",
-                "142.251.165.155",
-                "142.251.165.164",
-                "142.251.165.165",
-                "142.251.165.193",
-                "142.251.165.195",
-                "142.251.165.197",
-                "142.251.165.201",
-                "142.251.165.82",
-                "142.251.165.94",
-                "142.251.178.105",
-                "142.251.178.110",
-                "142.251.178.114",
-                "142.251.178.117",
-                "142.251.178.122",
-                "142.251.178.137",
-                "142.251.178.146",
-                "142.251.178.164",
-                "142.251.178.166",
-                "142.251.178.181",
-                "142.251.178.190",
-                "142.251.178.195",
-                "142.251.178.197",
-                "142.251.178.199",
-                "142.251.178.200",
-                "142.251.178.214",
-                "142.251.178.83",
-                "142.251.178.84",
-                "142.251.178.88",
-                "142.251.178.92",
-                "142.251.178.99",
-                "142.251.2.139",
-                "142.251.221.121",
-                "142.251.221.129",
-                "142.251.221.138",
-                "142.251.221.98",
-                "142.251.40.104",
-                "142.251.41.14",
-                "142.251.41.36",
-                "142.251.42.197",
-                "142.251.8.155",
-                "142.251.8.189",
-                "172.217.16.210",
-                "172.217.164.103",
-                "172.217.168.203",
-                "172.217.168.215",
-                "172.217.168.227",
-                "172.217.169.138",
-                "172.217.17.104",
-                "172.217.171.228",
-                "172.217.175.23",
-                "172.217.19.72",
-                "172.217.192.149",
-                "172.217.192.92",
-                "172.217.197.156",
-                "172.217.197.91",
-                "172.217.204.104",
-                "172.217.204.156",
-                "172.217.214.112",
-                "172.217.218.133",
-                "172.217.222.92",
-                "172.217.31.136",
-                "172.217.31.142",
-                "172.217.31.163",
-                "172.217.31.168",
-                "172.217.31.174",
-                "172.253.117.118",
-                "172.253.122.154",
-                "172.253.62.88",
-                "173.194.199.94",
-                "173.194.216.102",
-                "173.194.220.101",
-                "173.194.220.138",
-                "173.194.221.101",
-                "173.194.222.106",
-                "173.194.222.138",
-                "173.194.66.137",
-                "173.194.67.101",
-                "173.194.68.97",
-                "173.194.73.106",
-                "173.194.73.189",
-                "173.194.76.107",
-                "173.194.77.81",
-                "173.194.79.200",
-                "209.85.201.155",
-                "209.85.201.198",
-                "209.85.201.201",
-                "209.85.203.198",
-                "209.85.232.101",
-                "209.85.232.110",
-                "209.85.232.133",
-                "209.85.232.195",
-                "209.85.233.100",
-                "209.85.233.102",
-                "209.85.233.105",
-                "209.85.233.136",
-                "209.85.233.191",
-                "209.85.233.93",
-                "216.239.32.40",
-                "216.58.200.10",
-                "216.58.213.8",
-                "34.105.140.105",
-                "34.128.8.104",
-                "34.128.8.40",
-                "34.128.8.55",
-                "34.128.8.64",
-                "34.128.8.70",
-                "34.128.8.71",
-                "34.128.8.85",
-                "34.128.8.97",
-                "35.196.72.166",
-                "35.228.152.85",
-                "35.228.168.221",
-                "35.228.195.190",
-                "35.228.40.236",
-                "64.233.162.102",
-                "64.233.163.97",
-                "64.233.165.132",
-                "64.233.165.97",
-                "64.233.169.100",
-                "64.233.188.155",
-                "64.233.189.133",
-                "64.233.189.148",
-                "66.102.1.167",
-                "66.102.1.88",
-                "74.125.133.155",
-                "74.125.135.17",
-                "74.125.139.97",
-                "74.125.142.116",
-                "74.125.193.152",
-                "74.125.196.195",
-                "74.125.201.91",
-                "74.125.204.101",
-                "74.125.204.113",
-                "74.125.204.114",
-                "74.125.204.132",
-                "74.125.204.141",
-                "74.125.204.147",
-                "74.125.206.117",
-                "74.125.206.137",
-                "74.125.206.144",
-                "74.125.206.146",
-                "74.125.206.154",
-                "74.125.21.191",
-                "74.125.71.145",
-                "74.125.71.152",
-                "74.125.71.199",
-                "2404:6800:4008:c13::5a",
-                "2404:6800:4008:c15::94",
-                "2607:f8b0:4004:c07::66",
-                "2607:f8b0:4004:c07::71",
-                "2607:f8b0:4004:c07::8a",
-                "2607:f8b0:4004:c07::8b",
-                "2a00:1450:4001:829::201a",
-                "185.199.109.133",
-                "185.199.110.133",
-                "185.199.111.133",
-            },
+            # ips={
+            #     "108.177.127.214",
+            #     "108.177.97.141",
+            #     "142.250.101.157",
+            #     "142.250.110.102",
+            #     "142.250.141.100",
+            #     "142.250.145.113",
+            #     "142.250.145.139",
+            #     "142.250.157.133",
+            #     "142.250.157.149",
+            #     "142.250.176.6",
+            #     "142.250.181.232",
+            #     "142.250.183.106",
+            #     "142.250.187.139",
+            #     "142.250.189.6",
+            #     "142.250.196.174",
+            #     "142.250.199.161",
+            #     "142.250.199.75",
+            #     "142.250.204.37",
+            #     "142.250.204.38",
+            #     "142.250.204.49",
+            #     "142.250.27.113",
+            #     "142.250.4.136",
+            #     "142.250.66.10",
+            #     "142.250.76.35",
+            #     "142.251.1.102",
+            #     "142.251.1.136",
+            #     "142.251.163.91",
+            #     "142.251.165.101",
+            #     "142.251.165.104",
+            #     "142.251.165.106",
+            #     "142.251.165.107",
+            #     "142.251.165.110",
+            #     "142.251.165.112",
+            #     "142.251.165.122",
+            #     "142.251.165.133",
+            #     "142.251.165.139",
+            #     "142.251.165.146",
+            #     "142.251.165.152",
+            #     "142.251.165.155",
+            #     "142.251.165.164",
+            #     "142.251.165.165",
+            #     "142.251.165.193",
+            #     "142.251.165.195",
+            #     "142.251.165.197",
+            #     "142.251.165.201",
+            #     "142.251.165.82",
+            #     "142.251.165.94",
+            #     "142.251.178.105",
+            #     "142.251.178.110",
+            #     "142.251.178.114",
+            #     "142.251.178.117",
+            #     "142.251.178.122",
+            #     "142.251.178.137",
+            #     "142.251.178.146",
+            #     "142.251.178.164",
+            #     "142.251.178.166",
+            #     "142.251.178.181",
+            #     "142.251.178.190",
+            #     "142.251.178.195",
+            #     "142.251.178.197",
+            #     "142.251.178.199",
+            #     "142.251.178.200",
+            #     "142.251.178.214",
+            #     "142.251.178.83",
+            #     "142.251.178.84",
+            #     "142.251.178.88",
+            #     "142.251.178.92",
+            #     "142.251.178.99",
+            #     "142.251.2.139",
+            #     "142.251.221.121",
+            #     "142.251.221.129",
+            #     "142.251.221.138",
+            #     "142.251.221.98",
+            #     "142.251.40.104",
+            #     "142.251.41.14",
+            #     "142.251.41.36",
+            #     "142.251.42.197",
+            #     "142.251.8.155",
+            #     "142.251.8.189",
+            #     "172.217.16.210",
+            #     "172.217.164.103",
+            #     "172.217.168.203",
+            #     "172.217.168.215",
+            #     "172.217.168.227",
+            #     "172.217.169.138",
+            #     "172.217.17.104",
+            #     "172.217.171.228",
+            #     "172.217.175.23",
+            #     "172.217.19.72",
+            #     "172.217.192.149",
+            #     "172.217.192.92",
+            #     "172.217.197.156",
+            #     "172.217.197.91",
+            #     "172.217.204.104",
+            #     "172.217.204.156",
+            #     "172.217.214.112",
+            #     "172.217.218.133",
+            #     "172.217.222.92",
+            #     "172.217.31.136",
+            #     "172.217.31.142",
+            #     "172.217.31.163",
+            #     "172.217.31.168",
+            #     "172.217.31.174",
+            #     "172.253.117.118",
+            #     "172.253.122.154",
+            #     "172.253.62.88",
+            #     "173.194.199.94",
+            #     "173.194.216.102",
+            #     "173.194.220.101",
+            #     "173.194.220.138",
+            #     "173.194.221.101",
+            #     "173.194.222.106",
+            #     "173.194.222.138",
+            #     "173.194.66.137",
+            #     "173.194.67.101",
+            #     "173.194.68.97",
+            #     "173.194.73.106",
+            #     "173.194.73.189",
+            #     "173.194.76.107",
+            #     "173.194.77.81",
+            #     "173.194.79.200",
+            #     "209.85.201.155",
+            #     "209.85.201.198",
+            #     "209.85.201.201",
+            #     "209.85.203.198",
+            #     "209.85.232.101",
+            #     "209.85.232.110",
+            #     "209.85.232.133",
+            #     "209.85.232.195",
+            #     "209.85.233.100",
+            #     "209.85.233.102",
+            #     "209.85.233.105",
+            #     "209.85.233.136",
+            #     "209.85.233.191",
+            #     "209.85.233.93",
+            #     "216.239.32.40",
+            #     "216.58.200.10",
+            #     "216.58.213.8",
+            #     "34.105.140.105",
+            #     "34.128.8.104",
+            #     "34.128.8.40",
+            #     "34.128.8.55",
+            #     "34.128.8.64",
+            #     "34.128.8.70",
+            #     "34.128.8.71",
+            #     "34.128.8.85",
+            #     "34.128.8.97",
+            #     "35.196.72.166",
+            #     "35.228.152.85",
+            #     "35.228.168.221",
+            #     "35.228.195.190",
+            #     "35.228.40.236",
+            #     "64.233.162.102",
+            #     "64.233.163.97",
+            #     "64.233.165.132",
+            #     "64.233.165.97",
+            #     "64.233.169.100",
+            #     "64.233.188.155",
+            #     "64.233.189.133",
+            #     "64.233.189.148",
+            #     "66.102.1.167",
+            #     "66.102.1.88",
+            #     "74.125.133.155",
+            #     "74.125.135.17",
+            #     "74.125.139.97",
+            #     "74.125.142.116",
+            #     "74.125.193.152",
+            #     "74.125.196.195",
+            #     "74.125.201.91",
+            #     "74.125.204.101",
+            #     "74.125.204.113",
+            #     "74.125.204.114",
+            #     "74.125.204.132",
+            #     "74.125.204.141",
+            #     "74.125.204.147",
+            #     "74.125.206.117",
+            #     "74.125.206.137",
+            #     "74.125.206.144",
+            #     "74.125.206.146",
+            #     "74.125.206.154",
+            #     "74.125.21.191",
+            #     "74.125.71.145",
+            #     "74.125.71.152",
+            #     "74.125.71.199",
+            #     "2404:6800:4008:c13::5a",
+            #     "2404:6800:4008:c15::94",
+            #     "2607:f8b0:4004:c07::66",
+            #     "2607:f8b0:4004:c07::71",
+            #     "2607:f8b0:4004:c07::8a",
+            #     "2607:f8b0:4004:c07::8b",
+            #     "2a00:1450:4001:829::201a",
+            #     "185.199.109.133",
+            #     "185.199.110.133",
+            #     "185.199.111.133",
+            # },
+
         ),
         DomainGroup(
             name="JetBrain 插件",
