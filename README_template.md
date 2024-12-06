@@ -12,7 +12,7 @@
 > 适合部分地区饱受dns污染困扰，访问 GitHub 卡顿、抽风、图裂，无法使用Chrome浏览器 自带翻译功能，无法刮削影视封面等问题。分别使用 `setDNS` 自动查找最快服务器并设置，使用 `setHosts` 自动查找DNS映射主机并设置。支持Windows、Linux、MacOS。Enjoy!❤
 
 > [!NOTE]
-> 首次运行大约需要2分钟以获取DNS主机，请耐心等待。后续运行速度大约10秒左右
+> 首次运行大约需要2分钟以获取DNS主机并建立缓存，请耐心等待。后续运行速度大概二三十秒。
 
 ## 一、使用方法
 
@@ -21,6 +21,10 @@
 直接下载下方文件，解压后双击运行，enjoy❤！
 
 [![Release Detail](https://img.shields.io/github/v/release/sinspired/cnNetTool?sort=date&display_name=release&logo=github&label=Release)](https://github.com/sinspired/cnNetTool/releases/latest)
+
+程序使用DNS服务器实时解析和DNS A、AAAA记录获取IPv4及IPv6地址，通过本地网络环境检测延迟并进行SSL证书验证。
+
+由于需要进行 `hosts` 修改备份操作，exe文件已标记需要管理员权限，如果被系统误报病毒，请允许后再次操作。
 
 > 强烈建议采用本方法，如果喜欢折腾，可以继续往下看。
 
@@ -33,6 +37,9 @@
 ```
 
 以上内容会自动定时更新， 数据更新时间：{update_time}
+
+> [!NOTE]
+> 由于数据获取于非本地网络环境，请自行测试可用性，否则请采用方法 1，使用本地网络环境自动设置。
 
 #### 1.2.2 修改 hosts 文件
 
@@ -50,7 +57,7 @@ hosts 文件在每个系统的位置不一，详情如下：
 3. iPhone、iPad 须越狱、Android 必须要 root。
 
 > [!NOTE]
-> 请先把 `hosts` 文件复制到其他目录，修改后再复制回去，否则可能无法修改。
+> Windows系统可能需要先把 `hosts` 文件复制到其他目录，修改后再复制回去，否则可能没有修改权限。
 
 ## 二、安装
 
@@ -99,7 +106,7 @@ py SetHosts.py
 ```
 可执行文件也可带参数运行
 ```pwsh
-./SetDNS.exe --best-dns-num 10
+./SetDNS.exe --best-dns-num 10 --mode 'overall' --show-resolutions
 ./SetHosts.exe --num-fastest 3 --max-latency 500 
 ```
 
