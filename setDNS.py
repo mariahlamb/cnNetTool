@@ -71,7 +71,7 @@ DNS_SERVERS = {
             "ipv4": ["114.114.114.114", "114.114.115.115"],
             "ipv6": [],
         },
-        "中国联通": {
+        "上海牙木科技|联通机房": {
             "ipv4": ["1.1.8.8"],
             "ipv6": [],
         },
@@ -81,6 +81,10 @@ DNS_SERVERS = {
         },
         "百度DNS": {
             "ipv4": ["180.76.76.76"],
+            "ipv6": [],
+        },
+        "深圳桑瑞诗科技": {
+            "ipv4": ["202.46.34.74"],
             "ipv6": [],
         },
         # "阿里云DNS": {
@@ -467,6 +471,7 @@ def print_available_dns(available_dns, best_dns_num):
         if available_dns[ip_version]:
             # 使用PrettyTable展示前 n 个DNS服务器信息
             table = PrettyTable()
+            best_dns_num=min(len(available_dns[ip_version]),best_dns_num)
             table.title = f"前 {best_dns_num} 个可用 {ip_version.upper()} DNS服务器"
             table.field_names = [
                 "排名",
@@ -552,7 +557,7 @@ def main():
             print_domain_resolutions(domain_resolutions, dns_performance)
 
         # 防止 best_dns_num 数值超过数组长度
-        num_servers = min(
+        num_servers = max(
             len(available_dns["ipv4"]), len(available_dns["ipv6"]))
         if args.best_dns_num > num_servers:
             args.best_dns_num = num_servers

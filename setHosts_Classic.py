@@ -1802,8 +1802,8 @@ class Config:
                 "type": "ipv4"
             },
             {
-                "ip": "1.1.8.8",  # 中国联通
-                "provider": "China Unicom",
+                "ip": "1.1.8.8",  # 上海牙木科技|联通机房
+                "provider": "上海牙木科技|联通机房",
                 "type": "ipv4"
             },
 
