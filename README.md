@@ -12,7 +12,7 @@
 > 适合部分地区饱受dns污染困扰，访问 GitHub 卡顿、抽风、图裂，无法使用Chrome浏览器 自带翻译功能，无法刮削影视封面等问题。分别使用 `setDNS` 自动查找最快服务器并设置，使用 `setHosts` 自动查找DNS映射主机并设置。支持Windows、Linux、MacOS。Enjoy!❤
 
 > [!NOTE]
-> 首次运行大约需要2分钟以获取DNS主机，请耐心等待。后续运行速度大约10秒左右
+> 首次运行大约需要2分钟以获取DNS主机并建立缓存，请耐心等待。后续运行速度大概二三十秒。
 
 ## 一、使用方法
 
@@ -22,6 +22,10 @@
 
 [![Release Detail](https://img.shields.io/github/v/release/sinspired/cnNetTool?sort=date&display_name=release&logo=github&label=Release)](https://github.com/sinspired/cnNetTool/releases/latest)
 
+程序使用DNS服务器实时解析和DNS A、AAAA记录获取IPv4及IPv6地址，通过本地网络环境检测延迟并进行SSL证书验证。
+
+由于需要进行 `hosts` 修改备份操作，exe文件已标记需要管理员权限，如果被系统误报病毒，请允许后再次操作。
+
 > 强烈建议采用本方法，如果喜欢折腾，可以继续往下看。
 
 ### 1.2 手动操作
@@ -30,80 +34,83 @@
 
 ```bash
 
-# cnNetTool Start in 2024-12-05 16:28:37 +08:00
-140.82.114.26	alive.github.com
-140.82.112.6	api.github.com
-140.82.112.22	central.github.com
-140.82.112.10	codeload.github.com
-140.82.114.22	collector.github.com
-140.82.113.4	gist.github.com
-140.82.114.4	github.com
-140.82.113.18	github.community
+# cnNetTool Start in 2024-12-06 15:18:39 +08:00
+140.82.113.25	alive.github.com
+140.82.121.6	api.github.com
+140.82.113.21	central.github.com
+140.82.121.10	codeload.github.com
+140.82.112.21	collector.github.com
+140.82.121.3	gist.github.com
+140.82.121.4	github.com
+140.82.112.18	github.community
 146.75.29.194	github.global.ssl.fastly.net
-3.5.11.158		github-com.s3.amazonaws.com
-52.216.236.243	github-production-release-asset-2e65be.s3.amazonaws.com
-140.82.112.26	live.github.com
+52.217.118.57	github-com.s3.amazonaws.com
+52.217.227.97	github-production-release-asset-2e65be.s3.amazonaws.com
+140.82.112.25	live.github.com
 13.107.42.16	pipelines.actions.githubusercontent.com
-185.199.109.154	github.githubassets.com
-185.199.108.153	github.io
-185.199.108.153	githubstatus.com
-185.199.108.153	assets-cdn.github.com
-185.199.108.133	avatars.githubusercontent.com
-185.199.108.133	avatars0.githubusercontent.com
-185.199.108.133	avatars1.githubusercontent.com
-185.199.108.133	avatars2.githubusercontent.com
-185.199.108.133	avatars3.githubusercontent.com
-185.199.108.133	avatars4.githubusercontent.com
-185.199.108.133	avatars5.githubusercontent.com
-185.199.108.133	camo.githubusercontent.com
-185.199.108.133	cloud.githubusercontent.com
-185.199.108.133	desktop.githubusercontent.com
-185.199.108.133	favicons.githubusercontent.com
-185.199.108.133	github.map.fastly.net
-185.199.108.133	media.githubusercontent.com
-185.199.108.133	objects.githubusercontent.com
-185.199.108.133	private-user-images.githubusercontent.com
-185.199.108.133	raw.githubusercontent.com
-185.199.108.133	user-images.githubusercontent.com
-18.160.200.103	tmdb.org
-18.160.200.103	api.tmdb.org
-18.160.200.103	files.tmdb.org
-108.159.227.111	themoviedb.org
-108.159.227.111	api.themoviedb.org
-108.159.227.111	www.themoviedb.org
-108.159.227.111	auth.themoviedb.org
-169.150.236.97	image.tmdb.org
-169.150.236.97	images.tmdb.org
-52.94.237.74	imdb.com
-3.168.35.144	www.imdb.com
-52.94.237.74	secure.imdb.com
-3.168.35.144	s.media-imdb.com
-52.94.228.167	us.dd.imdb.com
-3.168.35.144	www.imdb.to
+185.199.111.154	github.githubassets.com
+185.199.110.153	github.io
+185.199.110.153	githubstatus.com
+185.199.110.153	assets-cdn.github.com
+185.199.109.133	avatars.githubusercontent.com
+185.199.109.133	avatars0.githubusercontent.com
+185.199.109.133	avatars1.githubusercontent.com
+185.199.109.133	avatars2.githubusercontent.com
+185.199.109.133	avatars3.githubusercontent.com
+185.199.109.133	avatars4.githubusercontent.com
+185.199.109.133	avatars5.githubusercontent.com
+185.199.109.133	camo.githubusercontent.com
+185.199.109.133	cloud.githubusercontent.com
+185.199.109.133	desktop.githubusercontent.com
+185.199.109.133	favicons.githubusercontent.com
+185.199.109.133	github.map.fastly.net
+185.199.109.133	media.githubusercontent.com
+185.199.109.133	objects.githubusercontent.com
+185.199.109.133	private-user-images.githubusercontent.com
+185.199.109.133	raw.githubusercontent.com
+185.199.109.133	user-images.githubusercontent.com
+3.171.100.99	tmdb.org
+3.171.100.99	api.tmdb.org
+3.171.100.99	files.tmdb.org
+3.171.100.3	themoviedb.org
+3.171.100.3	api.themoviedb.org
+3.171.100.3	www.themoviedb.org
+3.171.100.3	auth.themoviedb.org
+169.150.247.35	image.tmdb.org
+169.150.247.35	images.tmdb.org
+52.94.225.248	imdb.com
+18.67.61.135	www.imdb.com
+52.94.225.248	secure.imdb.com
+18.67.61.135	s.media-imdb.com
+52.94.225.248	us.dd.imdb.com
+18.67.61.135	www.imdb.to
 52.94.237.74	imdb-webservice.amazon.com
 44.215.137.99	origin-www.imdb.com
-18.172.138.122	m.media-amazon.com
+108.138.76.126	m.media-amazon.com
 146.75.29.16	Images-na.ssl-images-amazon.com
-18.160.216.100	images-fe.ssl-images-amazon.com
-23.220.246.166	images-eu.ssl-images-amazon.com
-146.75.29.16	ia.media-imdb.com
+108.138.76.126	images-fe.ssl-images-amazon.com
+146.75.29.16	images-eu.ssl-images-amazon.com
+23.207.202.187	ia.media-imdb.com
 146.75.29.16	f.media-amazon.com
-52.84.18.105	imdb-video.media-imdb.com
-3.167.180.176	dqpnq362acqdi.cloudfront.net
-142.250.191.170	translate.google.com
-142.250.191.170	translate.googleapis.com
-142.250.191.170	translate-pa.googleapis.com
-54.230.18.115	plugins.jetbrains.com
-54.230.18.115	download.jetbrains.com
-54.230.18.115	cache-redirector.jetbrains.com
+18.67.76.14	imdb-video.media-imdb.com
+18.67.66.59	dqpnq362acqdi.cloudfront.net
+142.251.163.91	translate.google.com
+142.251.163.91	translate.googleapis.com
+142.251.163.91	translate-pa.googleapis.com
+52.85.151.69	plugins.jetbrains.com
+52.85.151.69	download.jetbrains.com
+52.85.151.69	cache-redirector.jetbrains.com
 
-# Update time: 2024-12-05 16:28:37 +08:00
+# Update time: 2024-12-06 15:18:39 +08:00
 # GitHub仓库: https://github.com/sinspired/cnNetTool
 # cnNetTool End
 
 ```
 
-以上内容会自动定时更新， 数据更新时间：2024-12-05 16:28:37 +08:00
+以上内容会自动定时更新， 数据更新时间：2024-12-06 15:18:39 +08:00
+
+> [!NOTE]
+> 由于数据获取于非本地网络环境，请自行测试可用性，否则请采用方法 1，使用本地网络环境自动设置。
 
 #### 1.2.2 修改 hosts 文件
 
@@ -121,7 +128,7 @@ hosts 文件在每个系统的位置不一，详情如下：
 3. iPhone、iPad 须越狱、Android 必须要 root。
 
 > [!NOTE]
-> 请先把 `hosts` 文件复制到其他目录，修改后再复制回去，否则可能无法修改。
+> Windows系统可能需要先把 `hosts` 文件复制到其他目录，修改后再复制回去，否则可能没有修改权限。
 
 ## 二、安装
 
@@ -170,7 +177,7 @@ py SetHosts.py
 ```
 可执行文件也可带参数运行
 ```pwsh
-./SetDNS.exe --best-dns-num 10
+./SetDNS.exe --best-dns-num 10 --mode 'overall' --show-resolutions
 ./SetHosts.exe --num-fastest 3 --max-latency 500 
 ```
 
