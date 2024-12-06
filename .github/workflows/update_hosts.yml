@@ -32,7 +32,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
       
       - name: Install dependencies
@@ -48,7 +48,7 @@ jobs:
       - name: Commit and push changes
         uses: EndBug/add-and-commit@v9
         with:
-          message: "Update servers list"
+          message: "Update hosts list"
           add: |
             hosts
             README.md
