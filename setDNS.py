@@ -60,11 +60,19 @@ DNS_SERVERS = {
         },
         "NTT Communications DNS": {"ipv4": ["129.250.35.250"], "ipv6": []},
         "KT DNS": {"ipv4": ["168.126.63.1"], "ipv6": []},
-        "CPC HK": {"ipv4": ["210.184.24.65"], "ipv6": []},
+        "CPC HK": {"ipv4": ["210.184.24.65", "152.101.4.130"], "ipv6": []},
         "Soft Bank": {"ipv4": ["101.110.50.106"], "ipv6": []},
         "SingNet": {"ipv4": ["118.201.189.90"], "ipv6": []},
         "SK Broadband": {"ipv4": ["1.228.180.5"], "ipv6": []},
         "Korea Telecom": {"ipv4": ["183.99.33.6"], "ipv6": []},
+        "Amazon.HK": {"ipv4": ["18.163.103.200"]},
+        "IPTELECOM.HK": {"ipv4": ["43.251.159.130"]},
+        "Broadband Network.HK": {"ipv4": ["14.198.168.140"]},
+        "HKT.HK": {"ipv4": ["203.198.161.89"]},
+        "Cloudie.HK": {"ipv4": ["103.51.144.212"]},
+        "Dimension.HK": {"ipv4": ["66.203.146.122"]},
+        "ONL.HK": {"ipv4": ["103.142.147.14"]},
+        "SkyExchange.HK": {"ipv4": ["156.241.7.91"]},
     },
     "中国大陆": {
         "114DNS": {
@@ -471,7 +479,7 @@ def print_available_dns(available_dns, best_dns_num):
         if available_dns[ip_version]:
             # 使用PrettyTable展示前 n 个DNS服务器信息
             table = PrettyTable()
-            best_dns_num=min(len(available_dns[ip_version]),best_dns_num)
+            best_dns_num = min(len(available_dns[ip_version]), best_dns_num)
             table.title = f"前 {best_dns_num} 个可用 {ip_version.upper()} DNS服务器"
             table.field_names = [
                 "排名",

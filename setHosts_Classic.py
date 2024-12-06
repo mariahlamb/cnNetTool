@@ -342,7 +342,7 @@ class DomainResolver:
         ips.update(dns_ips)
 
         dns_resolve_end_time = datetime.now()
-        
+
         dns_resolve_duration = dns_resolve_end_time - start_time
         logging.debug(f"DNS解析耗时: {dns_resolve_duration.total_seconds():.2f}秒")
 
@@ -491,7 +491,6 @@ class DomainResolver:
             return wrapper
         return decorator
 
-    
     LOGGING_CONFIG = {
         "version": 1,
         "handlers": {
@@ -639,7 +638,7 @@ class LatencyTester:
             else:
                 rprint("[red]延迟检测没有获得有效IP[/red]")
                 return []
-            
+
             # 排序结果
             valid_latency_ips = sorted(valid_latency_ips, key=lambda x: x[1])
 
@@ -653,7 +652,7 @@ class LatencyTester:
                 r for r in valid_latency_ips if not Utils.is_ipv6(r[0])]
             ipv6_results = [
                 r for r in valid_latency_ips if Utils.is_ipv6(r[0])]
-            
+
             # 第二步：使用线程池并发验证SSL证书
             # if "github" in group_name.lower():
             if len(valid_latency_ips) > 1 and any(keyword in group_name.lower() for keyword in ["google"]):
@@ -855,7 +854,7 @@ class LatencyTester:
 
         best_hosts = []
         selected_count = 0
-        
+
         if ipv4_results:
             min_ipv4_results = min(ipv4_results, key=lambda x: x[1])
 
@@ -1043,13 +1042,13 @@ class HostsUpdater:
     async def update_hosts(self):
         # 更新hosts文件的主逻辑
         all_entries = []
-        
+
         for i, group in enumerate(self.domain_groups, 1):
             progress_str = Utils.get_align_str(i, group.name)
             rprint(progress_str)
             # 先获取预设IP
             default_ips = group.ips.copy()
-            
+
             # 2. 根据不同组设置IP
             if group.group_type == GroupType.SEPARATE:
                 for domain in group.domains:
@@ -1062,7 +1061,7 @@ class HostsUpdater:
                                 len(default_ips)}[/bold bright_green] 个预设IP地址[/bright_black]"
                         )
                         all_ips.update(default_ips)
-                        
+
                     resolved_ips = await self.resolver.resolve_domain(domain)
                     all_ips.update(resolved_ips)
 
@@ -1092,14 +1091,15 @@ class HostsUpdater:
                             len(default_ips)}[/bold bright_green] 个预设IP地址[/bright_black]"
                     )
                     all_ips.update(default_ips)
- 
+
                 # 收集组内所有域名的DNS解析结果
                 domain_resolve_tasks = [self.resolver.resolve_domain(
                     domain) for domain in group.domains]
                 resolved_ips = await asyncio.gather(*domain_resolve_tasks, return_exceptions=True)
 
-                all_ips.update(ip for ip_list in resolved_ips for ip in ip_list if ip)
-                    
+                all_ips.update(
+                    ip for ip_list in resolved_ips for ip in ip_list if ip)
+
                 if not all_ips:
                     logging.warning(f"组 {group.name} 未找到任何可用IP。跳过该组。")
                     continue
@@ -1653,6 +1653,26 @@ class Config:
             {
                 "ip": "210.184.24.65",
                 "provider": "CPC HK",  # 香港
+                "type": "ipv4"
+            },
+            {
+                "ip": "18.163.103.200",
+                "provider": "Amazon HK",  # 香港
+                "type": "ipv4"
+            },
+            {
+                "ip": "43.251.159.130",
+                "provider": "IPTELECOM HK",  # 香港
+                "type": "ipv4"
+            },
+            {
+                "ip": "14.198.168.140",
+                "provider": "Broadband HK",  # 香港
+                "type": "ipv4"
+            },
+            {
+                "ip": "66.203.146.122",
+                "provider": "Dimension HK",  # 香港
                 "type": "ipv4"
             },
             {
