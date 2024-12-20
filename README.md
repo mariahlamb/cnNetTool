@@ -30,21 +30,21 @@
 
 ```bash
 
-# cnNetTool Start in 2024-12-20 20:18:13 +08:00
-140.82.112.26	alive.github.com
-20.205.243.168	api.github.com
-140.82.114.22	central.github.com
-20.205.243.165	codeload.github.com
+# cnNetTool Start in 2024-12-21 00:11:42 +08:00
+140.82.113.26	alive.github.com
+140.82.121.5	api.github.com
+140.82.113.21	central.github.com
+140.82.121.9	codeload.github.com
 140.82.114.22	collector.github.com
-20.205.243.166	gist.github.com
-20.205.243.166	github.com
-140.82.112.17	github.community
-146.75.113.194	github.global.ssl.fastly.net
-3.5.0.52		github-com.s3.amazonaws.com
-52.217.232.225	github-production-release-asset-2e65be.s3.amazonaws.com
-140.82.112.25	live.github.com
+140.82.121.3	gist.github.com
+140.82.121.3	github.com
+140.82.113.17	github.community
+146.75.29.194	github.global.ssl.fastly.net
+52.216.238.195	github-com.s3.amazonaws.com
+52.216.41.241	github-production-release-asset-2e65be.s3.amazonaws.com
+140.82.114.26	live.github.com
 13.107.42.16	pipelines.actions.githubusercontent.com
-185.199.110.154	github.githubassets.com
+185.199.108.154	github.githubassets.com
 185.199.109.153	github.io
 185.199.109.153	githubstatus.com
 185.199.109.153	assets-cdn.github.com
@@ -65,45 +65,45 @@
 185.199.110.133	private-user-images.githubusercontent.com
 185.199.110.133	raw.githubusercontent.com
 185.199.110.133	user-images.githubusercontent.com
-13.225.142.73	tmdb.org
-13.225.142.73	api.tmdb.org
-13.225.142.73	files.tmdb.org
-3.167.212.53	themoviedb.org
-3.167.212.53	api.themoviedb.org
-3.167.212.53	www.themoviedb.org
-3.167.212.53	auth.themoviedb.org
-169.150.207.216	image.tmdb.org
-169.150.207.216	images.tmdb.org
+3.171.100.104	tmdb.org
+3.171.100.104	api.tmdb.org
+3.171.100.104	files.tmdb.org
+108.138.64.20	themoviedb.org
+108.138.64.20	api.themoviedb.org
+108.138.64.20	www.themoviedb.org
+108.138.64.20	auth.themoviedb.org
+138.199.37.227	image.tmdb.org
+138.199.37.227	images.tmdb.org
 52.94.225.248	imdb.com
-13.226.254.49	www.imdb.com
-52.94.225.248	secure.imdb.com
-13.226.254.49	s.media-imdb.com
-52.94.225.248	us.dd.imdb.com
-13.226.254.49	www.imdb.to
-52.94.228.167	imdb-webservice.amazon.com
+18.67.61.135	www.imdb.com
+52.94.228.167	secure.imdb.com
+3.162.96.108	s.media-imdb.com
+52.94.228.167	us.dd.imdb.com
+3.171.67.142	www.imdb.to
+52.94.237.74	imdb-webservice.amazon.com
 44.215.137.99	origin-www.imdb.com
-18.154.126.231	m.media-amazon.com
-199.232.45.16	Images-na.ssl-images-amazon.com
-199.232.45.16	images-fe.ssl-images-amazon.com
-23.44.201.168	images-eu.ssl-images-amazon.com
-52.84.244.143	ia.media-imdb.com
-146.75.113.16	f.media-amazon.com
-18.65.25.113	imdb-video.media-imdb.com
-13.226.220.7	dqpnq362acqdi.cloudfront.net
-172.217.164.103	translate.google.com
-172.217.164.103	translate.googleapis.com
-172.217.164.103	translate-pa.googleapis.com
-3.163.125.103	plugins.jetbrains.com
-3.163.125.103	download.jetbrains.com
-3.163.125.103	cache-redirector.jetbrains.com
+18.160.6.41	m.media-amazon.com
+23.207.202.185	Images-na.ssl-images-amazon.com
+18.165.95.215	images-fe.ssl-images-amazon.com
+3.171.83.185	images-eu.ssl-images-amazon.com
+23.207.202.174	ia.media-imdb.com
+146.75.29.16	f.media-amazon.com
+18.67.76.14	imdb-video.media-imdb.com
+18.67.66.215	dqpnq362acqdi.cloudfront.net
+172.253.122.102	translate.google.com
+172.253.122.102	translate.googleapis.com
+172.253.122.102	translate-pa.googleapis.com
+13.32.151.9	plugins.jetbrains.com
+13.32.151.9	download.jetbrains.com
+13.32.151.9	cache-redirector.jetbrains.com
 
-# Update time: 2024-12-20 20:18:13 +08:00
+# Update time: 2024-12-21 00:11:42 +08:00
 # GitHub仓库: https://github.com/sinspired/cnNetTool
 # cnNetTool End
 
 ```
 
-该内容会自动定时更新， 数据更新时间：2024-12-20 20:18:13 +08:00
+该内容会自动定时更新， 数据更新时间：2024-12-21 00:11:42 +08:00
 
 #### 1.2.2 修改 hosts 文件
 
